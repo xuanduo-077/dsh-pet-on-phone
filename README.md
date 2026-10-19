@@ -33,14 +33,35 @@ pnpm add link:<绝对路径>/dsh-whale-bridge
 3. `cordis.patch.yml` 已含默认配置：路由前缀 `/whale-pet`，配对 token `whale-pair-2026`（**务必改成自己的**）
 4. 重启 DSH，验证：`curl http://<nas>:28000/whale-pet/health` → `{"ok":true}`
 
-## 安卓侧：自己编译 APK
+## 手机侧：连接配置（v4 连接向导）
+
+APK 首次启动会自动弹出「连接鲸宝的家」设置面板，填两项即可：
+
+| 项 | 说明 |
+|---|---|
+| **服务器地址** | 完整 WS 地址，见下表按你的场景选 |
+| **配对码** | 与插件 `config.token` 一致，默认 `whale-pair-2026` |
+
+点「**测试连接**」→ 显示 ✓ 连接成功即自动保存并连上。之后随时可从**通知栏 → 连接设置**修改。
+
+### 三种网络场景怎么填地址
+
+| 场景 | 地址形式 | 用户需要准备 |
+|---|---|---|
+| **同一 WiFi（最常见）** | `ws://<电脑或NAS的局域网IP>:28000/whale-pet/ws`，如 `ws://192.168.1.10:28000/whale-pet/ws` | 查电脑/NAS 内网 IP（ipconfig / 路由器后台）；DSH 端口 28000 未被防火墙拦 |
+| **不在同一网络，会 Tailscale** | `ws://<Tailscale主机名或100.x.y.z>:28000/whale-pet/ws` | 两端装 [Tailscale](https://tailscale.com) 并登录同一账号（免费档够用，零配置打洞） |
+| **不在同一网络，要给所有人连** | `wss://xxx.trycloudflare.com/whale-pet/ws` | 自建 Cloudflare Tunnel：`cloudflared tunnel --url http://localhost:28000`（quick tunnel 免费但域名随机重启会变；正式用法绑定自己的域名），且 Cloudflare 自动带 TLS → 用 `wss://` |
+
+> 注意：`ws://` 用于局域网明文，`wss://` 用于有 TLS 的隧道/域名。端口 `28000` 是 DSH 默认 Web 端口，如你改过请同步改地址。
+> 不要把 28000 端口直接映射到公网路由器——要远程就用隧道/Tailscale。
+
+### 编译说明
 
 本仓库不含 182MB 动画素材，需先取原项目素材：
 
 ```bash
 git clone https://github.com/duoxichangan/whale-pet-Android
 cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
-# 下载原仓库的 app/build.gradle、app/src/main/assets/native-*.json 覆盖（本仓库已含）
 ```
 
 需要 JDK 17 + Android SDK 36，`./gradlew :app:assembleDebug` 即可。
@@ -50,7 +71,7 @@ cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
 | 文件 | 改动 |
 |---|---|
 | `WhaleBridge.java` | 新增。OkHttp WS 客户端：hello 握手、user.text、agent.delta 流式、agent.done/error、5s 自动重连 |
-| `PetService.java` | 接线桥接：connectBridge / streamMessage（流式只更新气泡文本）/ 长按说话 startListening/endListening / TTS / 通知栏「打字聊天」/ 输入法聚焦修复 |
+| `PetService.java` | 接线桥接：connectBridge / streamMessage（流式只更新气泡文本）/ 长按说话 startListening/endListening / TTS / 通知栏「打字聊天」「连接设置」/ 输入法聚焦修复 / **v4 连接向导 + 测试连接** |
 | `PetVoice.java` | 新增。系统 SpeechRecognizer 封装（zh-CN，partial results，音量回调） |
 | `PetEngine.java` | 加 `playClip(id)`：播动画不影响养成数值 |
 | `PetAnimationView.java` | Gesture 接口加 `holdEnd()`，长按松手正确结束聆听 |
@@ -58,7 +79,14 @@ cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
 | `AndroidManifest.xml` | + INTERNET / ACCESS_NETWORK_STATE / RECORD_AUDIO，usesCleartextTraffic |
 | `app/build.gradle` | + okhttp 4.12.0（唯一第三方依赖） |
 
-服务器地址与 token 存在 SharedPreferences（`bridge-url` / `bridge-token`），默认 `ws://192.168.31.55:28000/whale-pet/ws`。
+服务器地址与 token 存在 SharedPreferences（`bridge-url` / `bridge-token`）。**v4 起首次启动弹连接向导，无默认开发者地址**；也可由分发者预置（adb 写入或改默认值后自行编译）。
+
+## 版本记录
+
+- **v4**：首次启动连接向导（地址+配对码+测试连接）、通知栏「连接设置」入口、通知栏显示连接状态、去掉硬编码默认地址
+- **v3**：长按说话反馈（音量音符跳动、迟到错误过滤）、回复时 happy 动画
+- **v2**：长按语音输入（系统识别 zh-CN）、TTS 朗读、输入法弹出不修复不弹的 bug、通知栏打字聊天
+- **v1**：文字桥接打通（WS 握手/流式/断线重连）
 
 ## WS 协议
 

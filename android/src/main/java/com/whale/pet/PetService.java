@@ -23,6 +23,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     private boolean registered,screenActive,dragging,bubbleBelow;private float worldX,worldY;private boolean positionReady;private PetCatalog.Clip shownClip;private String bubbleText="";private int motionTarget;
     private final String session=UUID.randomUUID().toString();private long taps,holds,sleeps;
     private WhaleBridge bridge;private boolean streamBubble;private final StringBuilder streamBuf=new StringBuilder();
+    private View settings;private WindowManager.LayoutParams settingsLp;
     private PetVoice voice;private boolean voiceListening;private android.speech.tts.TextToSpeech tts;private boolean ttsReady;
     private final Runnable careTick=new Runnable(){@Override public void run(){if(screenActive){reminders();snapshot();handler.postDelayed(this,5000);}}};
     private final Runnable clearBubble=()->{bubbleText="";layoutPet(false);};
@@ -46,16 +47,21 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         if(!Settings.canDrawOverlays(this)||!store.prefs.getBoolean("enabled",false)){stopSelf();return;}
         createPet();layoutPet(false);connectBridge();IntentFilter f=new IntentFilter();f.addAction(Intent.ACTION_SCREEN_OFF);f.addAction(Intent.ACTION_SCREEN_ON);f.addAction(Intent.ACTION_USER_PRESENT);registerReceiver(screen,f);registered=true;updateVisibility();
     }
-    /** 连接 DSH 桥（本地 NAS whale-bridge 插件）。地址与配对码可在设置里改，这里先用默认值。 */
+    /** 连接 DSH 桥（本地 NAS whale-bridge 插件）。地址与配对码存 SharedPreferences，可随时在设置里改。 */
     private void connectBridge(){
-        String url=store.prefs.getString("bridge-url","ws://192.168.31.55:28000/whale-pet/ws");
+        if(voice!=null){voice.destroy();voice=null;}
+        if(bridge!=null){bridge.close();bridge=null;}
+        if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}tts=null;ttsReady=false;}
+        String url=store.prefs.getString("bridge-url","");
         String token=store.prefs.getString("bridge-token","whale-pair-2026");
+        // 未配置过地址：先弹连接向导（不再用旧默认地址，那只是开发者家的 NAS）。
+        if(url.isEmpty()){showSettings(true);return;}
         bridge=new WhaleBridge(url,token,new WhaleBridge.Listener(){
-            @Override public void onReady(String model){message("鲸宝上线啦，长按我说话");}
+            @Override public void onReady(String model){message("鲸宝上线啦，长按我说话");updateNotification();}
             @Override public void onDelta(String delta){if(!streamBubble){engine.playClip("happy");}streamBuf.append(delta);streamMessage(streamBuf.toString());}
             @Override public void onDone(String fullText){streamBubble=false;streamBuf.setLength(0);message(fullText); speak(fullText);}
-            @Override public void onError(String m){streamBubble=false;streamBuf.setLength(0);message("…"+m);}
-            @Override public void onDisconnected(){if(streamBubble){streamBubble=false;streamBuf.setLength(0);message("鲸宝掉线了，正在重连…");}}
+            @Override public void onError(String m){streamBubble=false;streamBuf.setLength(0);message("…"+m);if(m!=null&&m.contains("配对码"))updateNotification();}
+            @Override public void onDisconnected(){if(streamBubble){streamBubble=false;streamBuf.setLength(0);message("鲸宝掉线了，正在重连…");}updateNotification();}
         });
         bridge.connect();
         voice=new PetVoice(this);
@@ -136,6 +142,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         if(!store.prefs.getBoolean("enabled",false)){stopSelf();return START_NOT_STICKY;}
         if(intent!=null&&"RECOVER".equals(intent.getAction())&&pet!=null){pet.screenActive(false);pet.screenActive(true);root.requestLayout();root.postInvalidateOnAnimation();}
         if(intent!=null&&"CHAT".equals(intent.getAction())){handler.postDelayed(this::openChat,150);}
+        if(intent!=null&&"SETTINGS".equals(intent.getAction())){handler.postDelayed(()->showSettings(false),150);}
         updateVisibility();return START_STICKY;
     }
     public void updateVisibility(){
@@ -221,6 +228,64 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     }
     /** 外部入口：气泡里的「打字」入口打开菜单并聚焦输入框。 */
     public void openChat(){showMenu();makeMenuFocusable(true);View panel=menu==null?null:menu.findViewWithTag("chat-input");if(panel!=null)panel.requestFocus();}
+    // ---------------- 连接设置（v4） ----------------
+    /** 连接设置面板：独立 overlay，可聚焦（输入框需要输入法）。first=true 为首次向导，无关闭按钮。 */
+    void showSettings(boolean first){
+        if(settings!=null)hideSettings();
+        if(!screenActive&&!first)return;
+        Context c=this;Ui.Palette p=new Ui.Palette(store.dark());LinearLayout box=Ui.column(c);
+        box.setPadding(dp(16),dp(14),dp(16),dp(12));box.setBackground(Ui.round(p.bg,p.line,24,c));box.setClickable(true);
+        TextView title=Ui.text(c,first?"连接鲸宝的家":"连接设置",16,p.ink,true);title.setPadding(0,0,0,dp(4));Ui.add(box,title,-2,2);
+        TextView hint=Ui.text(c,first?"第一次见面！先告诉鲸宝它的 DeepSeek 家在哪里。\n①电脑/NAS 装好 dsh-whale-bridge 插件\n②填服务器地址和配对码，点测试连接":"修改后点「保存并重连」生效",12,p.muted,false);hint.setPadding(0,0,0,dp(8));Ui.add(box,hint,-2,2);
+        TextView urlLabel=Ui.text(c,"服务器地址",12,p.ink,true);Ui.add(box,urlLabel,-2,2);
+        EditText url=new EditText(c);url.setTag("set-url");url.setSingleLine(true);url.setTextSize(13);url.setTextColor(p.ink);url.setHintTextColor(0x66000000);
+        url.setHint("如 ws://192.168.1.10:28000/whale-pet/ws 或 wss://xxx.trycloudflare.com/whale-pet/ws");
+        url.setText(store.prefs.getString("bridge-url",""));url.setBackground(Ui.round(p.card,p.line,10,c));url.setPadding(dp(10),dp(9),dp(10),dp(9));
+        LinearLayout.LayoutParams urlLp=new LinearLayout.LayoutParams(-1,-2);urlLp.bottomMargin=dp(8);box.addView(url,urlLp);
+        TextView tokenLabel=Ui.text(c,"配对码（与插件 config.token 一致）",12,p.ink,true);Ui.add(box,tokenLabel,-2,2);
+        EditText token=new EditText(c);token.setTag("set-token");token.setSingleLine(true);token.setTextSize(13);token.setTextColor(p.ink);token.setHintTextColor(0x66000000);
+        token.setHint("默认 whale-pair-2026");token.setText(store.prefs.getString("bridge-token","whale-pair-2026"));token.setBackground(Ui.round(p.card,p.line,10,c));token.setPadding(dp(10),dp(9),dp(10),dp(9));
+        LinearLayout.LayoutParams tokenLp=new LinearLayout.LayoutParams(-1,-2);tokenLp.bottomMargin=dp(10);box.addView(token,tokenLp);
+        TextView status=Ui.text(c,"",12,p.muted,false);status.setTag("set-status");status.setPadding(0,0,0,dp(8));Ui.add(box,status,-2,2);
+        LinearLayout row=new LinearLayout(c);row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView test=Ui.button(c,"测试连接",p,()->{
+            String u=url.getText().toString().trim(),tk=token.getText().toString().trim();
+            if(u.isEmpty()){status.setText("请先填服务器地址");status.setTextColor(0xffcc4444);return;}
+            status.setText("连接中…");status.setTextColor(p.muted);
+            testBridge(u,tk,msg->handler.post(()->{
+                if(msg==null){status.setText("✓ 连接成功，鲸宝就位！");status.setTextColor(0xff2e8b57);
+                    store.prefs.edit().putString("bridge-url",u).putString("bridge-token",tk).apply();
+                    if(first)handler.postDelayed(this::hideSettings,900);else handler.postDelayed(this::hideSettings,900);
+                    handler.postDelayed(this::connectBridge,950);
+                }else{status.setText("✗ "+msg);status.setTextColor(0xffcc4444);}
+            }));
+        });
+        TextView save=Ui.button(c,first?"跳过，稍后再连":"保存并重连",p,()->{
+            if(first){hideSettings();message("在通知栏点「连接设置」随时配置");return;}
+            store.prefs.edit().putString("bridge-url",url.getText().toString().trim()).putString("bridge-token",token.getText().toString().trim()).apply();
+            hideSettings();message("正在重连鲸宝…");handler.postDelayed(this::connectBridge,600);
+        });
+        Ui.weight(row,test,1);Ui.weight(row,save,1);Ui.add(box,row,dp(44),2);
+        settings=box;
+        settingsLp=new WindowManager.LayoutParams(Math.min(dp(360),width()-dp(24)),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,first?0:(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE),PixelFormat.TRANSLUCENT);
+        settingsLp.gravity=Gravity.CENTER;settingsLp.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;settingsLp.setTitle("泡泡鲸·连接设置");
+        try{wm.addView(settings,settingsLp);Ui.enter(settings);}catch(Exception e){settings=null;}
+    }
+    void hideSettings(){if(settings!=null){try{wm.removeView(settings);}catch(IllegalArgumentException ignored){}settings=null;}}
+    /** 测试连接：临时建一条 WS 握手，成功回调 null，失败回调错误文案。 */
+    private void testBridge(String url,String token,java.util.function.Consumer<String> done){
+        final WhaleBridge[] holder=new WhaleBridge[1];
+        holder[0]=new WhaleBridge(url,token,new WhaleBridge.Listener(){
+            @Override public void onReady(String model){holder[0].close();done.accept(null);}
+            @Override public void onDelta(String d){}
+            @Override public void onDone(String t){}
+            @Override public void onError(String m){holder[0].close();done.accept(m);}
+            @Override public void onDisconnected(){done.accept("连不上服务器，检查地址/网络（插件启动了吗？端口通吗？）");}
+        });
+        holder[0].connect();
+        handler.postDelayed(()->{if(!holder[0].isReady()){holder[0].close();done.accept("超时：10 秒内没连上，检查地址和防火墙");}},10000);
+    }
+    private void updateNotification(){getSystemService(NotificationManager.class).notify(7,notification());}
     private void dismissMenu(){if(menu==null)return;if(!ValueAnimator.areAnimatorsEnabled()){hideMenu();return;}menu.animate().alpha(0).scaleX(.98f).scaleY(.98f).setDuration(120).withEndAction(this::hideMenu).start();}
     private void hideMenu(){if(menu!=null){makeMenuFocusable(false);try{wm.removeView(menu);}catch(IllegalArgumentException ignored){}menu=null;if(engine!=null&&engine.active)engine.menu(false);}}
     private void openApp(){hideMenu();startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP));}
@@ -229,8 +294,9 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     void snapshot(){if(store!=null)store.prefs.edit().putString("native-diagnostics",diagnostics().toString()).apply();}
     private Notification notification(){
         PendingIntent open=PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        PendingIntent recover=PendingIntent.getService(this,2,new Intent(this,PetService.class).setAction("RECOVER"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT),stop=PendingIntent.getService(this,1,new Intent(this,PetService.class).setAction("STOP"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT),chat=PendingIntent.getService(this,3,new Intent(this,PetService.class).setAction("CHAT"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
-        return new Notification.Builder(this,STATUS_CHANNEL).setOnlyAlertOnce(true).setSound(null).setVibrate(null).setDefaults(0).setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_bubble_notification).setContentTitle(store.name()+"正在陪伴你").setContentText("轻触回应 · 长按说话 · 通知栏可打字").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"打字聊天",chat).build()).addAction(new Notification.Action.Builder(null,"回来陪我",recover).build()).addAction(new Notification.Action.Builder(null,"待会儿见",stop).build()).build();
+        PendingIntent recover=PendingIntent.getService(this,2,new Intent(this,PetService.class).setAction("RECOVER"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT),stop=PendingIntent.getService(this,1,new Intent(this,PetService.class).setAction("STOP"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT),chat=PendingIntent.getService(this,3,new Intent(this,PetService.class).setAction("CHAT"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT),cfg=PendingIntent.getService(this,4,new Intent(this,PetService.class).setAction("SETTINGS"),PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
+        String state=bridge==null?"未配置":(bridge.isReady()?"已连接":"连接中…");
+        return new Notification.Builder(this,STATUS_CHANNEL).setOnlyAlertOnce(true).setSound(null).setVibrate(null).setDefaults(0).setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_bubble_notification).setContentTitle(store.name()+"正在陪伴你 · 鲸宝"+state).setContentText("轻触回应 · 长按说话 · 通知栏可打字").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"打字聊天",chat).build()).addAction(new Notification.Action.Builder(null,"连接设置",cfg).build()).addAction(new Notification.Action.Builder(null,"待会儿见",stop).build()).build();
     }
     @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);hideMenu();applySettings();}
     @Override public void onDestroy(){handler.removeCallbacksAndMessages(null);hideMenu();if(voice!=null)voice.destroy();if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}}if(bridge!=null)bridge.close();if(engine!=null)engine.dispose();if(pet!=null){savePosition();pet.release();try{wm.removeViewImmediate(root);}catch(IllegalArgumentException ignored){}}if(registered)unregisterReceiver(screen);instance=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
