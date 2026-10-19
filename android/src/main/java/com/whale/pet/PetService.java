@@ -103,7 +103,10 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
             @Override public void onError(String m){
                 // 松手后系统识别器常发一个迟到的过期错误（busy/no_match），listening 已结束就忽略
                 if(!voiceListening){android.util.Log.d("WhaleVoice","ignore late voice error: "+m);return;}
-                voiceListening=false;message(m);
+                voiceListening=false;
+                // 权限类错误静默：识别器起不来多半是系统瞬时限麦（仅使用时允许/后台限制），不弹气泡吓用户
+                if(m==null||m.isEmpty()){message("（好像没听到我说话…再长按试试？）");return;}
+                message(m);
             }
         });
     }

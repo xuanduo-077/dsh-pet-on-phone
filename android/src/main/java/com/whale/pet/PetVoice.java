@@ -48,7 +48,7 @@ public final class PetVoice {
                 switch (error) {
                     case SpeechRecognizer.ERROR_NO_MATCH:
                     case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: msg = "没听清你说什么，再试一次？"; break;
-                    case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: msg = "没有麦克风权限"; break;
+                    case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: msg = ""; break;
                     case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: msg = "识别忙不过来，稍等再试"; break;
                     default: msg = "识别出错了（代码 " + error + "）";
                 }
