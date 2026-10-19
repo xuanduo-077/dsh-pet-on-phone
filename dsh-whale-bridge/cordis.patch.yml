@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-whale-bridge
+      name: 'dsh-whale-bridge'
+      config:
+        routePrefix: '/whale-pet'
+        token: 'whale-pair-2026'

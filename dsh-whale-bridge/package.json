@@ -1,0 +1,20 @@
+{
+  "name": "dsh-whale-bridge",
+  "version": "0.1.0",
+  "description": "泡泡鲸桌宠桥接插件：为 Android 端 whale-pet 提供 WebSocket 文字对话通道（P0：纯文字，无 TTS）",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent-default-model": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  }
+}
