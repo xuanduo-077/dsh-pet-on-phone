@@ -62,15 +62,15 @@ public final class Ui {
     }
     public static String effects(PetCatalog.Action a){StringBuilder text=new StringBuilder();String[] keys={"satiety","mood","energy"},names={"饱食","心情","精力"};for(int i=0;i<3;i++)if(a.effects.has(keys[i])){double v=a.effects.optDouble(keys[i]);if(text.length()>0)text.append(" · ");text.append(names[i]).append(v>0?"+":"").append((int)v);}return text.toString();}
     public static final class Bubble extends View{
-        private final Paint paint=new Paint(3);private String text="";private Palette palette;private boolean below;private float tailX=Float.NaN;
+        private final Paint paint=new Paint(3);private String text="";private Palette palette;private boolean below;private float tailX=Float.NaN;private float top0;private java.util.ArrayList<String> linesA=new java.util.ArrayList<>();
         public Bubble(Context c,Palette p){super(c);palette=p;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);setLayerType(LAYER_TYPE_SOFTWARE,null);}
         public void text(String s){text=s;setContentDescription(s);invalidate();}
         public void palette(Palette p){palette=p;invalidate();}
         public void placement(boolean below,float tail){this.below=below;tailX=tail;invalidate();}
-        @Override protected void onDraw(Canvas c){float d=getResources().getDisplayMetrics().density,w=getWidth(),h=getHeight()-7*d;float top=below?7*d:0,pointer=Float.isNaN(tailX)?w/2:Math.max(16*d,Math.min(w-16*d,tailX));c.save();c.translate(0,top);
+        @Override protected void onDraw(Canvas c){float d=getResources().getDisplayMetrics().density,w=getWidth(),h=getHeight()-7*d;float top=below?7*d:0,pointer=Float.isNaN(tailX)?w/2:Math.max(16*d,Math.min(w-16*d,tailX));c.save();c.translate(0,top);top0=top;
             paint.setColor(palette.dark?0xff203958:0xfff8fbff);paint.setStyle(Paint.Style.FILL);paint.setShadowLayer(3*d,0,d,0x18224477);c.drawRoundRect(2*d,2*d,w-2*d,h,16*d,16*d,paint);paint.clearShadowLayer();Path tail=new Path();tail.moveTo(pointer-7*d,below?2*d:h-1);tail.lineTo(pointer,below?-7*d:h+7*d);tail.lineTo(pointer+7*d,below?2*d:h-1);c.drawPath(tail,paint);
-            paint.setColor(palette.dark?0xffdbeaff:0xff44699d);paint.setTextSize(11*d);paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));float max=w-26*d;String first=text;String second="";int count=paint.breakText(text,true,max,null);if(count<text.length()){first=text.substring(0,count);second=text.substring(count);int end=paint.breakText(second,true,max,null);if(end<second.length())second=second.substring(0,Math.max(0,end-1))+"…";}
-            float y=second.isEmpty()?h/2+4*d:h/2-3*d;c.drawText(first,13*d,y,paint);if(!second.isEmpty())c.drawText(second,13*d,y+16*d,paint);c.restore();
+            paint.setColor(palette.dark?0xffdbeaff:0xff44699d);paint.setTextSize(11*d);paint.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));float max=w-26*d;java.util.ArrayList<String> ls=new java.util.ArrayList<>();String rest=text;while(!rest.isEmpty()){int n=paint.breakText(rest,true,max,null);if(n<=0){ls.add(rest);break;}ls.add(rest.substring(0,n));rest=rest.substring(n);if(ls.size()>=6){ls.set(5,ls.get(5).length()>0&&!rest.isEmpty()?ls.get(5)+"…":ls.get(5));break;}}linesA=ls;
+            int n=linesA.size();float lh=15*d;float y0=top0+h/2-(n-1)*lh/2+4*d;for(int i2=0;i2<n;i2++)c.drawText(linesA.get(i2),13*d,y0+i2*lh,paint);c.restore();
         }
     }
 }

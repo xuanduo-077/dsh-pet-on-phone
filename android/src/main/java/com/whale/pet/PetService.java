@@ -24,7 +24,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     private final String session=UUID.randomUUID().toString();private long taps,holds,sleeps;
     private WhaleBridge bridge;private boolean streamBubble;private final StringBuilder streamBuf=new StringBuilder();
     private View settings;private WindowManager.LayoutParams settingsLp;
-    private PetVoice voice;private boolean voiceListening;private android.speech.tts.TextToSpeech tts;private boolean ttsReady;
+    private PetVoice voice;private boolean voiceListening;
     private final Runnable careTick=new Runnable(){@Override public void run(){if(screenActive){reminders();snapshot();handler.postDelayed(this,5000);}}};
     private final Runnable clearBubble=()->{bubbleText="";layoutPet(false);};
     private final BroadcastReceiver screen=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){
@@ -51,34 +51,26 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     private void connectBridge(){
         if(voice!=null){voice.destroy();voice=null;}
         if(bridge!=null){bridge.close();bridge=null;}
-        if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}tts=null;ttsReady=false;}
-        String url=store.prefs.getString("bridge-url","");
+                String url=store.prefs.getString("bridge-url","");
         String token=store.prefs.getString("bridge-token","whale-pair-2026");
         // 未配置过地址：先弹连接向导（不再用旧默认地址，那只是开发者家的 NAS）。
         if(url.isEmpty()){showSettings(true);return;}
         bridge=new WhaleBridge(url,token,new WhaleBridge.Listener(){
             @Override public void onReady(String model){message("鲸宝上线啦，长按我说话");updateNotification();}
             @Override public void onDelta(String delta){if(!streamBubble){engine.playClip("happy");}streamBuf.append(delta);streamMessage(streamBuf.toString());}
-            @Override public void onDone(String fullText){streamBubble=false;streamBuf.setLength(0);message(fullText); speak(fullText);}
+            @Override public void onDone(String fullText){streamBubble=false;streamBuf.setLength(0);message(fullText);}
             @Override public void onError(String m){streamBubble=false;streamBuf.setLength(0);message("…"+m);if(m!=null&&m.contains("配对码"))updateNotification();}
             @Override public void onDisconnected(){if(streamBubble){streamBubble=false;streamBuf.setLength(0);message("鲸宝掉线了，正在重连…");}updateNotification();}
         });
         bridge.connect();
         voice=new PetVoice(this);
-        tts=new android.speech.tts.TextToSpeech(this,status->{ttsReady=status==android.speech.tts.TextToSpeech.SUCCESS;if(ttsReady)tts.setLanguage(java.util.Locale.CHINA);});
-    }
-    /** 朗读回复（TTS 可用且未在说话时） */
-    private void speak(String text){
-        if(!ttsReady||tts==null||text==null||text.length()>120)return;
-        tts.speak(text,android.speech.tts.TextToSpeech.QUEUE_ADD,null,"whale-"+System.currentTimeMillis());
-    }
+            }
     /** 长按开始：进入聆听 */
     private void startListening(){
         if(voice==null||!screenActive)return;
         if(voiceListening)return;
         if(!store.prefs.getBoolean("chat-enabled",true))return;
         if(bridge==null||!bridge.isReady()){message("鲸宝还没连上，等一下再试");return;}
-        tts.stop(); // 别让朗读盖住说话
         voiceListening=true;
         handler.removeCallbacks(clearBubble); // 聆听期间气泡别被 7s 清掉
         engine.playClip("greet");
@@ -161,10 +153,17 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     }
     private void pauseForScreen(){screenActive=false;if(engine!=null)engine.pause();stopMotion();handler.removeCallbacks(careTick);handler.removeCallbacks(clearBubble);if(!bubbleText.isEmpty()){bubbleText="";layoutPet(false);}snapshot();}
     public void applySettings(){if(pet==null)return;bubble.palette(new Ui.Palette(store.dark()));stopMotion();savePosition();layoutPet(false);getSystemService(NotificationManager.class).notify(7,notification());changed();}
+    /** 估算气泡高度：11sp 字、每行 16dp，基础 52dp，最多 6 行封顶 150dp。 */
+    private int bubbleHeight(String text,int boxW){
+        android.graphics.Paint pm=new android.graphics.Paint();pm.setTextSize(11*getResources().getDisplayMetrics().density);
+        float max=boxW-26*getResources().getDisplayMetrics().density;int lines=1;String rest=text==null?"":text;
+        while(!rest.isEmpty()){int n=pm.breakText(rest,true,max,null);if(n<=0||n>=rest.length())break;rest=rest.substring(n);lines++;}
+        return Math.min(dp(52)+(Math.min(lines,6)-1)*dp(16),dp(150));
+    }
     private void layoutPet(boolean persist){
         if(root==null||lp==null)return;if(persist)savePosition();restorePosition();
         PetCatalog.Clip clip=shownClip==null?catalog.clips.get("idle"):shownClip;
-        RectF envelope=PetAnimationView.envelope(clip,petSize());int speechHeight=bubbleText.isEmpty()?0:dp(52);
+        RectF envelope=PetAnimationView.envelope(clip,petSize());int speechHeight=bubbleText.isEmpty()?0:bubbleHeight(bubbleText,Math.min(dp(220),lp.width));
         // Intersect the complete action envelope with the display; body anchor does not change.
         int left=Math.max(0,(int)Math.floor(worldX+envelope.left)-dp(4));
         int right=Math.min(width(),(int)Math.ceil(worldX+envelope.right)+dp(4));
@@ -175,7 +174,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         if(speechHeight>0){if(bubbleBelow)bottom=Math.min(height()-dp(24),bottom+speechHeight);else top-=speechHeight;}
         lp.x=left;lp.y=top;lp.width=Math.max(dp(80),right-left);lp.height=Math.max(dp(80),bottom-top);
         FrameLayout.LayoutParams image=new FrameLayout.LayoutParams(-1,-1);pet.setLayoutParams(image);pet.bodySize(petSize());pet.anchor(worldX-left,worldY-top);
-        int bw=Math.min(dp(220),lp.width);FrameLayout.LayoutParams speech=new FrameLayout.LayoutParams(bw,dp(52),(bubbleBelow?Gravity.BOTTOM:Gravity.TOP)|Gravity.LEFT);speech.leftMargin=Math.max(0,Math.min(lp.width-bw,Math.round(worldX-left-bw/2f)));bubble.placement(bubbleBelow,worldX-left-speech.leftMargin);bubble.setLayoutParams(speech);bubble.setVisibility(bubbleText.isEmpty()?View.GONE:View.VISIBLE);bubble.text(bubbleText);
+        int bw=Math.min(dp(220),lp.width);FrameLayout.LayoutParams speech=new FrameLayout.LayoutParams(bw,bubbleHeight(bubbleText,bw),(bubbleBelow?Gravity.BOTTOM:Gravity.TOP)|Gravity.LEFT);speech.leftMargin=Math.max(0,Math.min(lp.width-bw,Math.round(worldX-left-bw/2f)));bubble.placement(bubbleBelow,worldX-left-speech.leftMargin);bubble.setLayoutParams(speech);bubble.setVisibility(bubbleText.isEmpty()?View.GONE:View.VISIBLE);bubble.text(bubbleText);
         try{wm.updateViewLayout(root,lp);}catch(IllegalArgumentException ignored){}
     }
     private void reminders(){if(menu==null&&!dragging)engine.chatTick();}
@@ -252,8 +251,10 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         TextView status=Ui.text(c,"",12,p.muted,false);status.setTag("set-status");status.setPadding(0,0,0,dp(8));Ui.add(box,status,-2,2);
         LinearLayout row=new LinearLayout(c);row.setOrientation(LinearLayout.HORIZONTAL);
         TextView test=Ui.button(c,"测试连接",p,()->{
-            String u=url.getText().toString().trim(),tk=token.getText().toString().trim();
-            if(u.isEmpty()){status.setText("请先填服务器地址");status.setTextColor(0xffcc4444);return;}
+            String tk=token.getText().toString().trim();
+            String u=normalizeWsUrl(url.getText().toString().trim());
+            if(u==null){status.setText("请先填服务器地址（IP、域名或完整 ws/wss 地址均可）");status.setTextColor(0xffcc4444);return;}
+            url.setText(u);
             status.setText("连接中…");status.setTextColor(p.muted);
             testBridge(u,tk,msg->handler.post(()->{
                 if(msg==null){status.setText("✓ 连接成功，鲸宝就位！");status.setTextColor(0xff2e8b57);
@@ -276,6 +277,16 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     }
     void hideSettings(){if(settings!=null){try{wm.removeView(settings);}catch(IllegalArgumentException ignored){}settings=null;}}
     /** 测试连接：临时建一条 WS 握手，成功回调 null，失败回调错误文案。 */
+    /** 用户输入容错：纯 IP / host:port / 域名 自动补成完整 ws 地址；已带 ws:// wss:// http(s):// 的自动转换。 */
+    static String normalizeWsUrl(String raw){
+        if(raw==null)return null;raw=raw.trim();if(raw.isEmpty())return null;
+        if(raw.startsWith("ws://")||raw.startsWith("wss://")){return raw.endsWith("/")?raw:raw+"/";}
+        if(raw.startsWith("http://"))return "ws://"+raw.substring(7)+(raw.endsWith("/")?"":"/")+"";
+        if(raw.startsWith("https://"))return "wss://"+raw.substring(8)+(raw.endsWith("/")?"":"/")+"";
+        String path=raw.matches(".*:\\d+.*")?"/whale-pet/ws":"/whale-pet/ws"; // 统一路径
+        // 无路径输入（如 192.168.1.10 或 mynas.com:28000）→ 补默认路径
+        return "ws://"+raw+(raw.endsWith("/")?"":"/")+path.replaceFirst("/","");
+    }
     private void testBridge(String url,String token,java.util.function.Consumer<String> done){
         final WhaleBridge[] holder=new WhaleBridge[1];
         holder[0]=new WhaleBridge(url,token,new WhaleBridge.Listener(){
@@ -302,6 +313,6 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         return new Notification.Builder(this,STATUS_CHANNEL).setOnlyAlertOnce(true).setSound(null).setVibrate(null).setDefaults(0).setCategory(Notification.CATEGORY_SERVICE).setSmallIcon(R.drawable.ic_bubble_notification).setContentTitle(store.name()+"正在陪伴你 · 鲸宝"+state).setContentText("轻触回应 · 长按说话 · 通知栏可打字").setContentIntent(open).setOngoing(true).addAction(new Notification.Action.Builder(null,"打字聊天",chat).build()).addAction(new Notification.Action.Builder(null,"连接设置",cfg).build()).addAction(new Notification.Action.Builder(null,"待会儿见",stop).build()).build();
     }
     @Override public void onConfigurationChanged(Configuration config){super.onConfigurationChanged(config);hideMenu();applySettings();}
-    @Override public void onDestroy(){handler.removeCallbacksAndMessages(null);hideMenu();if(voice!=null)voice.destroy();if(tts!=null){try{tts.stop();tts.shutdown();}catch(Exception ignored){}}if(bridge!=null)bridge.close();if(engine!=null)engine.dispose();if(pet!=null){savePosition();pet.release();try{wm.removeViewImmediate(root);}catch(IllegalArgumentException ignored){}}if(registered)unregisterReceiver(screen);instance=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
+    @Override public void onDestroy(){handler.removeCallbacksAndMessages(null);hideMenu();if(voice!=null)voice.destroy();if(bridge!=null)bridge.close();if(engine!=null)engine.dispose();if(pet!=null){savePosition();pet.release();try{wm.removeViewImmediate(root);}catch(IllegalArgumentException ignored){}}if(registered)unregisterReceiver(screen);instance=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }
