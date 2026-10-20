@@ -3,8 +3,8 @@
 把 [泡泡鲸桌宠 whale-pet-Android](https://github.com/duoxichangan/whale-pet-Android)（v2.3.0 fork）接入 [DeepSeek 实体（DSH）](https://github.com/anthropics/claude-code)，实现：
 
 - **长按鲸鱼说话**（Android 系统 SpeechRecognizer，zh-CN）→ 转文字发到电脑上的 DSH
-- **气泡流式回复**：DeepSeek 逐字回信直接显示在鲸鱼头顶气泡，说话时播 `happy` 动画
-- **TTS 朗读回复**（系统 TextToSpeech）
+- **气泡流式回复**：逐字显示在鲸鱼头顶气泡，说话时播 `happy` 动画，气泡按文字自动撑高（最多 6 行）
+- **完整 DSH Agent 能力（v0.2.0 插件）**：鲸宝不再只是裸聊天——它接的是真正的 DSH Agent，可以调用工具（联网搜索等）、回答「现在几点/帮我查查…」会真去查；session 持久化，断线重连记忆不丢
 - **通知栏打字聊天**（输入法聚焦修复版）
 - 原项目全部养成玩法保留（轻触回应、饱食/心情/精力、106 段动画、完全离线）
 
@@ -14,7 +14,7 @@
 ## 仓库结构
 
 ```
-dsh-whale-bridge/     DSH 桥接插件（Cordis 插件，手写 RFC6455 WS，零第三方依赖）
+dsh-whale-bridge/     DSH 桥接插件 v0.2.0（Agent 版：agents.create 创建真 agent + 手写 RFC6455 WS）
 android/              安卓端源码（fork 自 whale-pet-Android v2.3.0，改动的文件）
 docs/                 APK 交付说明、更新日志
 ```
@@ -83,6 +83,7 @@ cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
 
 ## 版本记录
 
+- **插件 v0.2.0（Agent 版）**：每条连接通过 `ctx.agents.create()` 创建真正的 DSH Agent——拥有宿主工具（实测可调用 domain_search 联网检索）、agent 域人设注入（鲸宝人设只影响自己）、`agent/assistant-stream` 流式转发、session 持久化（`sessions/--root--/whale-*`，重连记忆不丢）。WS 协议不变，APK 无需更新
 - **v4**：首次启动连接向导（地址+配对码+测试连接）、通知栏「连接设置」入口、通知栏显示连接状态、去掉硬编码默认地址
 - **v3**：长按说话反馈（音量音符跳动、迟到错误过滤）、回复时 happy 动画
 - **v2**：长按语音输入（系统识别 zh-CN）、TTS 朗读、输入法弹出不修复不弹的 bug、通知栏打字聊天
@@ -98,7 +99,11 @@ cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
 ← {"type":"agent.done"} / {"type":"agent.error","message":"..."}
 ```
 
+> **Agent 版说明**：插件为每条 WS 连接创建一个独立 DSH Agent（模型跟随 DSH 默认模型）。回复前模型可自由调用宿主注册的工具（搜索、检索等）；人设约束它输出 1~3 句短句适配气泡。换手机重连或杀进程后，只要 sessionId 对应的 session 还在，历史记忆仍然保留。
+
 ## 安全提示
+
+- **Agent 版意味着鲸宝能操作你的 DSH 宿主**（执行工具）：token 就是钥匙，配对码务必改成强随机值，不要把带 token 的地址分享给别人
 
 - 不要把 DSH 的 28000 端口暴露公网；跨网段建议 Tailscale / SSH 隧道 / Cloudflare Tunnel（wss）
 - token 仅是简单配对凭据，非加密保证
