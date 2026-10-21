@@ -84,7 +84,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     private void title(LinearLayout body,String eyebrow,String title,String note){Ui.add(body,Ui.text(this,eyebrow,9,palette.muted,true),-2,12);Ui.add(body,Ui.text(this,title,27,palette.ink,true),-2,10);if(note!=null)Ui.add(body,Ui.text(this,note,12,palette.muted,false),-2,22);}
     private void renderPage(){
         if(heroPet!=null){heroPet.release();heroPet=null;}homeModes.clear();homeMeters=null;launchTitle=null;homeBubble=null;sceneStatus=null;
-        for(int i=pageHost.getChildCount()-1;i>=0;i--){View cv=pageHost.getChildAt(i);if(cv!=web)pageHost.removeViewAt(i);}
+        for(int i=pageHost.getChildCount()-1;i>=0;i--){View cv=pageHost.getChildAt(i);if(cv!=web&&!"web-bar".equals(cv.getTag()))pageHost.removeViewAt(i);}
         if(web!=null)web.setVisibility(View.GONE);
         if(page==0){engine.pause();webPage();}
         else if(page==1){LinearLayout body=Ui.column(this);body.setPadding(dp(20),dp(18),dp(20),0);pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));LinearLayout heading=Ui.column(this);title(heading,"LITTLE JOYS / 今天的小计划","今天，一起做什么？",null);Ui.add(body,heading,-2,0);PetPanel panel=new PetPanel(this,store,catalog,new PetPanel.Host(){public void choose(PetCatalog.Action a,String token){playAction(a,token);}public void mode(String value){engine.mode(value);}public void message(String text){toast(text);}public void confirmation(boolean visible){heading.setVisibility(visible?View.GONE:View.VISIBLE);}},false);body.addView(panel,new LinearLayout.LayoutParams(-1,0,1));}
@@ -218,51 +218,77 @@ public final class MainActivity extends Activity implements PetEngine.Host {
                             "\"html,body{background-image:none !important;}\" +" +
                             "\"body::before,body::after{background-image:none !important;content:none !important;}\";document.head.appendChild(s);})();",null);
                     }
-                    // SPA 渲染较晚：延迟几轮探测网页自带的 ≡ 菜单是否在，不在就亮出我们自己的浮动按钮
-                    handler.postDelayed(MainActivity.this::updateWebNav,700);
-                    handler.postDelayed(MainActivity.this::updateWebNav,2200);
                 }
             });
             web.setWebChromeClient(new android.webkit.WebChromeClient());
         }
         pageHost.addView(web,new FrameLayout.LayoutParams(-1,-1));
-        if(pageHost.findViewWithTag("web-nav")==null){
-            TextView nav=new TextView(this);
-            nav.setTag("web-nav");nav.setText("\u2261");nav.setTextSize(20);nav.setTextColor(Color.WHITE);nav.setGravity(android.view.Gravity.CENTER);
-            android.graphics.drawable.GradientDrawable gd=new android.graphics.drawable.GradientDrawable();
-            gd.setShape(android.graphics.drawable.GradientDrawable.OVAL);gd.setColor(0x99000000);nav.setBackground(gd);
-            nav.setVisibility(View.GONE);
-            nav.setOnClickListener(v->toggleWebDrawer());
-            FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(dp(40),dp(40));
-            lp.gravity=android.view.Gravity.TOP|android.view.Gravity.START;lp.setMargins(dp(8),dp(56),0,0);
-            pageHost.addView(nav,lp);
-        }
+        ensureWebBar();
         String cur=web.getUrl();
         if(cur==null||!cur.startsWith(base)) web.loadUrl(url);
-        pageHost.bringChildToFront(web);
-        View nav=pageHost.findViewWithTag("web-nav");if(nav!=null)pageHost.bringChildToFront(nav);
+        View bar=pageHost.findViewWithTag("web-bar");if(bar!=null)pageHost.bringChildToFront(bar);
         web.setVisibility(View.VISIBLE);
     }
-    /** 网页自带 ≡ 在的话就藏起我们的浮动按钮（避免两个菜单叠在一起）。 */
-    private void updateWebNav(){
-        if(web==null||pageHost==null)return;
-        final View nav=pageHost.findViewWithTag("web-nav");
-        if(nav==null)return;
-        web.evaluateJavascript("(function(){return !!document.querySelector('.dsh-header-menu-btn');})();",new android.webkit.ValueCallback<String>(){
-            @Override public void onReceiveValue(String s){if(nav!=null)nav.setVisibility("true".equals(s)?View.GONE:View.VISIBLE);}
-        });
+    /**
+     * 顶部原生功能条。
+     * 为什么要自己做：网页自带的 ≡ 和右上 ▣ 贴在屏幕最边缘（≈0~40dp），Android 的返回手势区
+     * 正好覆盖那里，手指点下去被系统当成侧滑手势吃掉——所以「菜单/工作区/设置」在手机上点不动。
+     * 这里用一排贴内的大按钮，并让它的高度与网页头部一致，直接盖在上面（网页头部仍占位，排版不乱）。
+     */
+    private void ensureWebBar(){
+        if(pageHost.findViewWithTag("web-bar")!=null)return;
+        LinearLayout bar=Ui.row(this);bar.setTag("web-bar");
+        bar.setBackgroundColor(palette.bg);bar.setPadding(dp(4),dp(2),dp(4),dp(2));
+        bar.addView(webBarBtn("\u2630 菜单",0,new Runnable(){public void run(){toggleWebDrawer();}}),webBarLp());
+        bar.addView(webBarBtn("\uff0b 新建",0,new Runnable(){public void run(){webJs("var b=document.querySelector('.dsh-header-new-btn');if(b){b.click();return;}var e=wbFind(/\u65b0\u5efa|New session/i);if(e)e.click();");}}),webBarLp());
+        bar.addView(webBarBtn("\u25a3 工作区",0,new Runnable(){public void run(){toggleWebPanel();}}),webBarLp());
+        bar.addView(webBarBtn("\u2699 设置",0,new Runnable(){public void run(){openDshSettings();}}),webBarLp());
+        bar.addView(webBarBtn("\u27f3 刷新",0,new Runnable(){public void run(){if(web!=null)web.reload();}}),webBarLp());
+        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(52));
+        lp.gravity=android.view.Gravity.TOP;
+        pageHost.addView(bar,lp);
+        pageHost.bringChildToFront(bar);
     }
-    /** 打开/关闭侧边栏：优先点网页自带的 ≡，否则直接驱动 dsh-bridge 的抽屉状态。 */
-    private void toggleWebDrawer(){
+    private LinearLayout.LayoutParams webBarLp(){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(2),dp(2),dp(2),dp(2));return lp;}
+    private TextView webBarBtn(String label,int tone,final Runnable action){
+        TextView t=new TextView(this);t.setText(label);t.setTextSize(12);t.setGravity(android.view.Gravity.CENTER);
+        t.setTextColor(tone==0?palette.ink:Color.WHITE);
+        android.graphics.drawable.GradientDrawable gd=new android.graphics.drawable.GradientDrawable();
+        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);gd.setCornerRadius(dp(10));
+        gd.setColor(tone==0?0x14000000:0xDD1F6FEB);
+        t.setBackground(gd);
+        t.setOnClickListener(v->action.run());
+        return t;
+    }
+    /** 执行一段网页脚本（自动带上按 aria-label/title/class 找按钮的 wbFind 工具函数）。 */
+    private void webJs(String body){
         if(web==null)return;
-        web.evaluateJavascript("(function(){" +
-            "var b=document.querySelector('.dsh-header-menu-btn');if(b){b.click();return;}" +
-            "if(document.body.classList.contains('dsh-drawer-open')){document.body.classList.remove('dsh-drawer-open');return;}" +
-            "document.body.classList.add('dsh-drawer-open');" +
-            "var e=document.querySelector('button[aria-label*=\"打开侧边栏\"],button[title*=\"打开侧边栏\"],button[aria-label*=\"Open sidebar\"],button[title*=\"Open sidebar\"],button[aria-label*=\"展开侧边栏\"],button[title*=\"展开侧边栏\"]');" +
-            "if(e)e.click();})();",null);
+        web.evaluateJavascript("(function(){"
+            +"function wbFind(re){var b=document.querySelectorAll('button,[role=\"button\"]');"
+            +"for(var i=0;i<b.length;i++){var l=(b[i].getAttribute('aria-label')||'')+' '+(b[i].getAttribute('title')||'')+' '+(b[i].className||'');"
+            +"if(re.test(l))return b[i];}return null;}"
+            +body+"})();",null);
     }
-    private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);View nav=pageHost.findViewWithTag("web-nav");if(nav!=null)nav.setVisibility(View.GONE);}
+    /** 打开/关闭左侧边栏（会话列表 / 设置入口）。 */
+    private void toggleWebDrawer(){
+        webJs("var b=document.querySelector('.dsh-header-menu-btn');if(b){b.click();return;}"
+            +"if(document.body.classList.contains('dsh-drawer-open')){document.body.classList.remove('dsh-drawer-open');return;}"
+            +"document.body.classList.add('dsh-drawer-open');"
+            +"var e=wbFind(/(\u6253\u5f00|\u5c55\u5f00)\u4fa7\u8fb9\u680f|Open sidebar|Collapse sidebar|\u6536\u8d77\u4fa7\u8fb9\u680f/i);if(e)e.click();");
+    }
+    /** 打开/关闭右侧工作区面板（含文件、终端、任务）。 */
+    private void toggleWebPanel(){
+        webJs("var e=wbFind(/\u53f3\u4fa7\u680f|\u53f3\u4fa7\u8fb9\u680f|\u9762\u677f|\u5de5\u4f5c\u533a|right sidebar|workspace|panel/i);"
+            +"if(e){e.click();}else{document.body.classList.add('dsh-workbench-open');}");
+    }
+    /** 打开 DSH 网页里的设置（即使抽屉没打开也能直接点）。 */
+    private void openDshSettings(){
+        webJs("var e=wbFind(/\u8bbe\u7f6e|Settings/);"
+            +"if(e){e.click();return;}"
+            +"var m=document.querySelector('.dsh-header-menu-btn');if(m){m.click();"
+            +"setTimeout(function(){var f=wbFind(/\u8bbe\u7f6e|Settings/);if(f)f.click();},420);}");
+    }
+    private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);View bar=pageHost.findViewWithTag("web-bar");if(bar!=null)bar.setVisibility(View.GONE);}
     @Override public boolean onKeyDown(int keyCode,android.view.KeyEvent event){
         if(keyCode==android.view.KeyEvent.KEYCODE_BACK&&web!=null&&page==0&&web.canGoBack()){web.goBack();return true;}
         return super.onKeyDown(keyCode,event);
