@@ -6,6 +6,16 @@
 偶鲸鲸 = 泡泡鲸桌宠（完全离线的养成桌宠） × DeepSeek 桌面端（DSH）。
 一个安卓原生 App + 一个 DSH 桥接插件，两者通过 WebSocket 通信。
 
+## 一览
+
+| 任务（电脑会话直读·可发消息/中止） | 陪伴（打字/长按说话·流式回复） |
+|---|---|
+| ![任务](docs/screenshots/tasks.jpg) | ![陪伴](docs/screenshots/chat.jpg) |
+| **互动**（喂食玩耍·养成三围） | **设置**（连接·桌宠·大小滑条） |
+| ![互动](docs/screenshots/interact.jpg) | ![设置](docs/screenshots/settings.jpg) |
+
+---
+
 ---
 
 ## 功能总览
