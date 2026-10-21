@@ -84,7 +84,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     private void title(LinearLayout body,String eyebrow,String title,String note){Ui.add(body,Ui.text(this,eyebrow,9,palette.muted,true),-2,12);Ui.add(body,Ui.text(this,title,27,palette.ink,true),-2,10);if(note!=null)Ui.add(body,Ui.text(this,note,12,palette.muted,false),-2,22);}
     private void renderPage(){
         if(heroPet!=null){heroPet.release();heroPet=null;}homeModes.clear();homeMeters=null;launchTitle=null;homeBubble=null;sceneStatus=null;
-        for(int i=pageHost.getChildCount()-1;i>=0;i--){View cv=pageHost.getChildAt(i);if(cv!=web&&!"web-bar".equals(cv.getTag()))pageHost.removeViewAt(i);}
+        for(int i=pageHost.getChildCount()-1;i>=0;i--){View cv=pageHost.getChildAt(i);if(cv!=web)pageHost.removeViewAt(i);}
         if(web!=null)web.setVisibility(View.GONE);
         if(page==0){engine.pause();webPage();}
         else if(page==1){LinearLayout body=Ui.column(this);body.setPadding(dp(20),dp(18),dp(20),0);pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));LinearLayout heading=Ui.column(this);title(heading,"LITTLE JOYS / 今天的小计划","今天，一起做什么？",null);Ui.add(body,heading,-2,0);PetPanel panel=new PetPanel(this,store,catalog,new PetPanel.Host(){public void choose(PetCatalog.Action a,String token){playAction(a,token);}public void mode(String value){engine.mode(value);}public void message(String text){toast(text);}public void confirmation(boolean visible){heading.setVisibility(visible?View.GONE:View.VISIBLE);}},false);body.addView(panel,new LinearLayout.LayoutParams(-1,0,1));}
@@ -186,8 +186,8 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         Ui.add(card,Ui.button(this,"保存会话页地址",palette,()->{String v=webIn.getText().toString().trim();if(!v.isEmpty()){if(!v.startsWith("http"))v="http://"+v;store.prefs.edit().putString("web-url",v).apply();toast("已保存，回「会话」页生效");if(web!=null){web.loadUrl(v);}}}),54,0);
         Switch forceMobile=new Switch(this);forceMobile.setText("强制手机排版（找不回 ≡ 菜单时打开）");forceMobile.setTextSize(13);forceMobile.setTextColor(palette.ink);forceMobile.setChecked(store.prefs.getBoolean("web-force-mobile",true));
         forceMobile.setOnCheckedChangeListener((button,value)->{store.prefs.edit().putBoolean("web-force-mobile",value).apply();if(web!=null)web.reload();});Ui.add(card,forceMobile,54,6);
-        Switch clean=new Switch(this);clean.setText("网页简洁模式（去掉主题皮肤干扰）");clean.setTextSize(13);clean.setTextColor(palette.ink);clean.setChecked(store.prefs.getBoolean("web-clean",true));
-        clean.setOnCheckedChangeListener((button,value)->{store.prefs.edit().putBoolean("web-clean",value).apply();if(web!=null){if(!value)web.evaluateJavascript("(function(){var s=document.getElementById('whale-clean-css');if(s)s.remove();})();",null);web.reload();}});Ui.add(card,clean,54,4);
+        TextView webHint=Ui.text(this,"会话页是一个干净的浏览器，原样显示 DSH 网页（不注入样式、不额外加工具栏）。",11,palette.muted,false);
+        webHint.setPadding(0,dp(6),0,0);Ui.add(card,webHint,-2,4);
         Ui.rule(card,palette);
         TextView guide=Ui.text(this,"三种连接方式：\n① 在家同 WiFi（推荐）：填 ws://电脑IP:28000/whale-pet/ws\n② 固定域名（出门也能用）：自己的 Cloudflare 隧道 → wss://域名/whale-pet/ws\n③ 临时隧道（应急）：电脑端插件管理页点「开启隧道」，填生成的 wss 地址。注意部分网络会拦截临时隧道的 WebSocket，连不上就用方式①②。",11,palette.muted,false);guide.setLineSpacing(dp(4),1);guide.setPadding(0,dp(10),0,0);
         Ui.add(card,guide,-2,0);
@@ -198,125 +198,44 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         return !on?palette.muted:ready?0xff2e8b57:0xffcc4444;}
     // ---------------- 聊天页（长按语音 + 打字，与桌面气泡共用 WhaleBridge） ----------------
 
-    /** 会话页：WebView 加载 DSH 网页（dsh-bridge 手机优化）。 */
+    /**
+     * 会话页 = 一个干净的手机浏览器：原样显示 DSH 网页。
+     * 网页自己已经做了移动端适配（窄屏时自己换排版、自己出 ≡ 菜单），App 这边不注入任何样式、
+     * 不额外汇工具栏，只提供浏览器该有的东西：JS、DOM 存储、双指缩放、返回键回退。
+     */
     private void webPage(){
         String base=store.prefs.getString("web-url","");
         if(base.isEmpty())base="http://192.168.31.55:28000";
-        // 强制手机排版：dsh-bridge 检测到宿主已有顶栏时会「让位」，手机端就没了 ≡ 菜单；
-        // 关掉美化插件后宿主顶栏回来了，正好触发让位 → 侧边栏打不开。用官方开关强制接管。
+        final String root=base.split("\\?")[0];
+        // dsh_bridge_tweaks=1 是 dsh-bridge 官方的手机排版开关：宿主已有顶栏时它会「让位」，
+        // 手机端就没有 ≡ 菜单。带上这个参数＝强制按手机排版渲染（只是 URL 参数，不改样式）。
         final String url=store.prefs.getBoolean("web-force-mobile",true)?base+(base.contains("?")?"&":"?")+"dsh_bridge_tweaks=1":base;
         if(web==null){
             web=new android.webkit.WebView(this);
             android.webkit.WebSettings ws=web.getSettings();
-            ws.setJavaScriptEnabled(true);ws.setDomStorageEnabled(true);ws.setUseWideViewPort(true);ws.setLoadWithOverviewMode(true);
+            ws.setJavaScriptEnabled(true);
+            ws.setDomStorageEnabled(true);
+            ws.setDatabaseEnabled(true);
+            ws.setJavaScriptCanOpenWindowsAutomatically(true);
+            ws.setUseWideViewPort(true);
+            ws.setLoadWithOverviewMode(false);
+            ws.setSupportZoom(true);
+            ws.setBuiltInZoomControls(true);
+            ws.setDisplayZoomControls(false);
+            ws.setMediaPlaybackRequiresUserGesture(false);
+            ws.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
+            web.setOverScrollMode(View.OVER_SCROLL_NEVER);
             web.setWebViewClient(new android.webkit.WebViewClient(){
-                @Override public void onPageFinished(android.webkit.WebView v,String u){
-                    // 简洁模式：注入 CSS 抹平皮肤插件（uiskin-theme 等）对手机端的干扰——恢复系统字体、去掉海洋背景
-                    if(store.prefs.getBoolean("web-clean",true)){
-                        v.evaluateJavascript("(function(){if(document.getElementById('whale-clean-css'))return;var s=document.createElement('style');s.id='whale-clean-css';s.textContent=" +
-                            "\"*:not(svg):not(svg *){font-family:'Segoe UI',-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif !important;}\" +" +
-                            "\"html,body{background-image:none !important;}\" +" +
-                            "\"body::before,body::after{background-image:none !important;content:none !important;}\";document.head.appendChild(s);})();",null);
-                    }
-                }
+                @Override public boolean shouldOverrideUrlLoading(android.webkit.WebView v,android.webkit.WebResourceRequest r){return false;}
             });
             web.setWebChromeClient(new android.webkit.WebChromeClient());
         }
-        pageHost.addView(web,new FrameLayout.LayoutParams(-1,-1));
-        ensureWebBar();
+        if(pageHost.indexOfChild(web)<0)pageHost.addView(web,new FrameLayout.LayoutParams(-1,-1));
         String cur=web.getUrl();
-        if(cur==null||!cur.startsWith(base)) web.loadUrl(url);
-        View bar=pageHost.findViewWithTag("web-bar");if(bar!=null)pageHost.bringChildToFront(bar);
+        if(cur==null||!cur.startsWith(root)) web.loadUrl(url);
         web.setVisibility(View.VISIBLE);
     }
-    /**
-     * 顶部原生功能条。
-     * 为什么要自己做：网页自带的 ≡ 和右上 ▣ 贴在屏幕最边缘（≈0~40dp），Android 的返回手势区
-     * 正好覆盖那里，手指点下去被系统当成侧滑手势吃掉——所以「菜单/工作区/设置」在手机上点不动。
-     * 这里用一排贴内的大按钮，并让它的高度与网页头部一致，直接盖在上面（网页头部仍占位，排版不乱）。
-     */
-    private void ensureWebBar(){
-        if(pageHost.findViewWithTag("web-bar")!=null)return;
-        LinearLayout bar=Ui.row(this);bar.setTag("web-bar");
-        bar.setBackgroundColor(palette.bg);bar.setPadding(dp(4),dp(2),dp(4),dp(2));
-        bar.addView(webBarBtn("\u2630 菜单",0,new Runnable(){public void run(){toggleWebDrawer();}}),webBarLp());
-        bar.addView(webBarBtn("\uff0b 新建",0,new Runnable(){public void run(){webJs("var b=document.querySelector('.dsh-header-new-btn');if(b){b.click();return;}var e=wbFind(/\u65b0\u5efa|New session/i);if(e)e.click();");}}),webBarLp());
-        bar.addView(webBarBtn("\u25a3 工作区",0,new Runnable(){public void run(){toggleWebPanel();}}),webBarLp());
-        bar.addView(webBarBtn("\u2699 设置",0,new Runnable(){public void run(){openDshSettings();}}),webBarLp());
-        bar.addView(webBarBtn("\u27f3 刷新",0,new Runnable(){public void run(){if(web!=null)web.reload();}}),webBarLp());
-        bar.addView(webBarBtn("\u26a0 \u8bca\u65ad",0,new Runnable(){public void run(){webDiag();}}),webBarLp());
-        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(52));
-        lp.gravity=android.view.Gravity.TOP;
-        pageHost.addView(bar,lp);
-        pageHost.bringChildToFront(bar);
-    }
-    private LinearLayout.LayoutParams webBarLp(){LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-1,1);lp.setMargins(dp(2),dp(2),dp(2),dp(2));return lp;}
-    private TextView webBarBtn(String label,int tone,final Runnable action){
-        TextView t=new TextView(this);t.setText(label);t.setTextSize(12);t.setGravity(android.view.Gravity.CENTER);
-        t.setTextColor(tone==0?palette.ink:Color.WHITE);
-        android.graphics.drawable.GradientDrawable gd=new android.graphics.drawable.GradientDrawable();
-        gd.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);gd.setCornerRadius(dp(10));
-        gd.setColor(tone==0?0x14000000:0xDD1F6FEB);
-        t.setBackground(gd);
-        t.setOnClickListener(v->action.run());
-        return t;
-    }
-    private void webJs(String body){webJs(body,null);}
-    /** 执行一段网页脚本（自动带上 wbFind 找按钮 + wbTap 派发完整点击序列），结果可回显到 Toast 便于排查。 */
-    private void webJs(String body,final String tag){
-        if(web==null){if(tag!=null)toast(tag+": \u7f51\u9875\u672a\u521d\u59cb\u5316");return;}
-        web.evaluateJavascript("(function(){"
-            +"function wbFind(re){var b=document.querySelectorAll('button,[role=\"button\"]');"
-            +"for(var i=0;i<b.length;i++){var l=(b[i].getAttribute('aria-label')||'')+' '+(b[i].getAttribute('title')||'')+' '+(b[i].className||'');"
-            +"if(re.test(l))return b[i];}return null;}"
-            +"function wbTap(el){if(!el)return false;try{var r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;"
-            +"var o={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,view:window,button:0};"
-            +"[new PointerEvent('pointerdown',o),new MouseEvent('mousedown',o),new PointerEvent('pointerup',o),new MouseEvent('mouseup',o),new MouseEvent('click',o)].forEach(function(e){el.dispatchEvent(e);});"
-            +"el.click();return true;}catch(err){try{el.click();return true;}catch(e2){return false;}}}"
-            +"try{"+body+"}catch(err){return 'ERR:'+err.message;}})();",
-            tag==null?null:new android.webkit.ValueCallback<String>(){
-                @Override public void onReceiveValue(String v){toast(tag+" \u2192 "+v);}
-            });
-    }
-    /** 把网页内部状态（有无 dsh 手机头、按钮标签、JS 是否可执行）弹窗显示，用于手机端排查。 */
-    private void webDiag(){
-        if(web==null){toast("\u7f51\u9875\u672a\u521d\u59cb\u5316");return;}
-        web.evaluateJavascript("(function(){"
-            +"var labels=[];var bs=document.querySelectorAll('button,[role=\"button\"]');"
-            +"for(var i=0;i<bs.length&&labels.length<26;i++){var r=bs[i].getBoundingClientRect();if(r.width<1)continue;"
-            +"var l=(bs[i].getAttribute('aria-label')||bs[i].getAttribute('title')||(bs[i].innerText||'').trim().slice(0,12));if(l)labels.push(l);}"
-            +"return JSON.stringify({js:true,href:location.href,lang:document.documentElement.lang,"
-            +"mobileHeader:!!document.querySelector('.dsh-mobile-app-header'),menuBtn:!!document.querySelector('.dsh-header-menu-btn'),"
-            +"body:document.body.className,cleanCss:!!document.getElementById('whale-clean-css'),labels:labels});})();",
-            new android.webkit.ValueCallback<String>(){
-                @Override public void onReceiveValue(String v){
-                    String text=v;try{text=new org.json.JSONObject(v).toString(2);}catch(Exception ignored){}
-                    new AlertDialog.Builder(MainActivity.this).setTitle("\u7f51\u9875\u8bca\u65ad").setMessage(text).setPositiveButton("\u597d",null).show();
-                }
-            });
-    }
-    /** 打开/关闭左侧边栏（会话列表 / 设置入口）。 */
-    private void toggleWebDrawer(){
-        webJs("var b=document.querySelector('.dsh-header-menu-btn');if(b){wbTap(b);return 'menuBtn';}"
-            +"if(document.body.classList.contains('dsh-drawer-open')){document.body.classList.remove('dsh-drawer-open');return 'closed';}"
-            +"document.body.classList.add('dsh-drawer-open');"
-            +"var e=wbFind(/(\u6253\u5f00|\u5c55\u5f00)\u4fa7\u8fb9\u680f|Open sidebar|\u6536\u8d77\u4fa7\u8fb9\u680f|Collapse sidebar/i);if(e){wbTap(e);return 'host:'+(e.getAttribute('aria-label')||'');}"
-            +"return 'classOnly';","\u83dc\u5355");
-    }
-    /** 打开/关闭右侧工作区面板（含文件、终端、任务）。 */
-    private void toggleWebPanel(){
-        webJs("var e=wbFind(/\u53f3\u4fa7\u680f|\u53f3\u4fa7\u8fb9\u680f|\u9762\u677f|\u5de5\u4f5c\u533a|right sidebar|workspace|panel/i);"
-            +"if(e){wbTap(e);document.body.classList.add('dsh-workbench-open');return 'tap:'+(e.getAttribute('aria-label')||e.className);}"
-            +"document.body.classList.add('dsh-workbench-open');return 'classOnly';","\u5de5\u4f5c\u533a");
-    }
-    /** 打开 DSH 网页里的设置（即使抽屉没打开也能直接点）。 */
-    private void openDshSettings(){
-        webJs("var e=wbFind(/\u8bbe\u7f6e|Settings/);"
-            +"if(e){wbTap(e);return 'tap:'+(e.getAttribute('aria-label')||e.innerText||'').slice(0,14);}"
-            +"var m=document.querySelector('.dsh-header-menu-btn');if(!m)return 'noSettingsBtn';"
-            +"wbTap(m);setTimeout(function(){var f=wbFind(/\u8bbe\u7f6e|Settings/);if(f)wbTap(f);},450);return 'retryAfterDrawer';","\u8bbe\u7f6e");
-    }
-    private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);View bar=pageHost.findViewWithTag("web-bar");if(bar!=null)bar.setVisibility(View.GONE);}
+    private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);}
     @Override public boolean onKeyDown(int keyCode,android.view.KeyEvent event){
         if(keyCode==android.view.KeyEvent.KEYCODE_BACK&&web!=null&&page==0&&web.canGoBack()){web.goBack();return true;}
         return super.onKeyDown(keyCode,event);
