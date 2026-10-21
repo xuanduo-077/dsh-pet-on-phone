@@ -1,7 +1,7 @@
 {
   "name": "dsh-whale-bridge",
-  "version": "0.2.0",
-  "description": "泡泡鲸桌宠桥接插件（Agent 版）：为 Android 端 whale-pet 提供完整 DSH Agent 对话通道——真工具调用、session 持久化、流式回复",
+  "version": "0.3.0",
+  "description": "泡泡鲸桌宠桥接插件：Android 端 whale-pet 的 WebSocket 对话通道（Agent 版 + Cloudflare 公网隧道）",
   "type": "module",
   "main": "lib/index.js",
   "license": "MIT",
@@ -12,7 +12,6 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-agent": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-host-webserver": "^0.2.0-rc.1",
     "@deepseek-ai/dsh-llm": "^0.2.0-rc.1",
