@@ -188,6 +188,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         forceMobile.setOnCheckedChangeListener((button,value)->{store.prefs.edit().putBoolean("web-force-mobile",value).apply();if(web!=null)web.reload();});Ui.add(card,forceMobile,54,6);
         TextView webHint=Ui.text(this,"会话页是一个干净的浏览器，原样显示 DSH 网页（不注入样式、不额外加工具栏）。",11,palette.muted,false);
         webHint.setPadding(0,dp(6),0,0);Ui.add(card,webHint,-2,4);
+        Ui.add(card,Ui.button(this,"网页诊断（点不动时先点这里）",palette,()->webDiag()),46,6);
         Ui.rule(card,palette);
         TextView guide=Ui.text(this,"三种连接方式：\n① 在家同 WiFi（推荐）：填 ws://电脑IP:28000/whale-pet/ws\n② 固定域名（出门也能用）：自己的 Cloudflare 隧道 → wss://域名/whale-pet/ws\n③ 临时隧道（应急）：电脑端插件管理页点「开启隧道」，填生成的 wss 地址。注意部分网络会拦截临时隧道的 WebSocket，连不上就用方式①②。",11,palette.muted,false);guide.setLineSpacing(dp(4),1);guide.setPadding(0,dp(10),0,0);
         Ui.add(card,guide,-2,0);
@@ -227,6 +228,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
             web.setOverScrollMode(View.OVER_SCROLL_NEVER);
             web.setWebViewClient(new android.webkit.WebViewClient(){
                 @Override public boolean shouldOverrideUrlLoading(android.webkit.WebView v,android.webkit.WebResourceRequest r){return false;}
+                @Override public void onPageFinished(android.webkit.WebView v,String u){v.evaluateJavascript(TAP_PROBE_JS,null);}
             });
             web.setWebChromeClient(new android.webkit.WebChromeClient());
         }
@@ -235,7 +237,41 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         if(cur==null||!cur.startsWith(root)) web.loadUrl(url);
         web.setVisibility(View.VISIBLE);
     }
+    /** 在设置页弹窗显示网页真实状态：视口宽度、≡ 按钮的屏幕位置、那个位置最上层是什么元素、最近的触摸记录。 */
+    private void webDiag(){
+        if(web==null){toast("会话页还没打开过，先去「会话」页看一眼再回来");return;}
+        web.evaluateJavascript("(window.__whaleProbe?window.__whaleProbe():'{\"err\":\"probe missing\"}')",new android.webkit.ValueCallback<String>(){
+            @Override public void onReceiveValue(String v){
+                String raw=v==null?"(null)":v;String pretty=raw;
+                try{pretty=new org.json.JSONObject(raw).toString(2);}catch(Exception ignored){}
+                final String show=pretty;
+                new AlertDialog.Builder(MainActivity.this).setTitle("网页诊断").setMessage(show)
+                    .setPositiveButton("好",null).setNeutralButton("复制",(d,w)->{
+                        ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("diag",show));
+                        toast("已复制");}).show();
+            }
+        });
+    }
     private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);}
+/** 纯观察用的点击探针：记录手指落在哪个元素上，便于在设置页「网页诊断」里看清为什么点不动。不修改任何样式或布局。 */
+    private static final String TAP_PROBE_JS="(function(){if(window.__whaleTapLog)return;window.__whaleTapLog=[];"
+        +"function rec(e){try{var t=(e.touches&&e.touches[0])||e.changedTouches&&e.changedTouches[0];"
+        +"var x=t?t.clientX:e.clientX,y=t?t.clientY:e.clientY;if(x===undefined||x<0)return;"
+        +"var el=e.target||{},q=document.elementFromPoint(x,y);"
+        +"window.__whaleTapLog.push({ty:e.type,x:Math.round(x),y:Math.round(y),"
+        +"el:String(el.className||el.tagName||''),top:q?String(q.className||q.tagName||''):'null'});"
+        +"if(window.__whaleTapLog.length>20)window.__whaleTapLog.shift();}catch(err){}}"
+        +"['touchstart','touchend','click'].forEach(function(t){document.addEventListener(t,rec,true);});"
+        +"window.__whaleProbe=function(){var o={iw:innerWidth,cw:document.documentElement.clientWidth,dpr:devicePixelRatio,"
+        +"vv:window.visualViewport?(Math.round(visualViewport.width)+'x'+Math.round(visualViewport.height)+'@'+visualViewport.scale):'na',"
+        +"menuBtn:!!document.querySelector('.dsh-header-menu-btn'),header:!!document.querySelector('.dsh-mobile-app-header'),"
+        +"body:document.body.className,taps:window.__whaleTapLog.slice(-10)};"
+        +"var b=document.querySelector('.dsh-header-menu-btn');"
+        +"if(b){var r=b.getBoundingClientRect();o.menuRect=[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];"
+        +"var q=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);"
+        +"o.menuTop=q?String(q.className||q.tagName||''):'null';o.menuTopIsBtn=!!q&&(q===b||b.contains(q));}"
+        +"return JSON.stringify(o);};})();";
+
     @Override public boolean onKeyDown(int keyCode,android.view.KeyEvent event){
         if(keyCode==android.view.KeyEvent.KEYCODE_BACK&&web!=null&&page==0&&web.canGoBack()){web.goBack();return true;}
         return super.onKeyDown(keyCode,event);
