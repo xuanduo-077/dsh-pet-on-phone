@@ -1,113 +1,151 @@
-# dsh-pet-on-phone 🐋
+# 偶鲸鲸 · 口袋里的海 × DeepSeek
 
-把 [泡泡鲸桌宠 whale-pet-Android](https://github.com/duoxichangan/whale-pet-Android)（v2.3.0 fork）接入 [DeepSeek 实体（DSH）](https://github.com/anthropics/claude-code)，实现：
+> 一只住在安卓手机桌面上的小鲸鱼桌宠，背后连着你电脑上的 DeepSeek（DSH）。
+> 在手机上跟它打字、说话；也能随时查看、操控电脑上正在跑的 DeepSeek 会话和任务。
 
-- **长按鲸鱼说话**（Android 系统 SpeechRecognizer，zh-CN）→ 转文字发到电脑上的 DSH
-- **气泡流式回复**：逐字显示在鲸鱼头顶气泡，说话时播 `happy` 动画，气泡按文字自动撑高（最多 6 行）
-- **完整 DSH Agent 能力（v0.2.0 插件）**：鲸宝不再只是裸聊天——它接的是真正的 DSH Agent，可以调用工具（联网搜索等）、回答「现在几点/帮我查查…」会真去查；session 持久化，断线重连记忆不丢
-- **通知栏打字聊天**（输入法聚焦修复版）
-- 原项目全部养成玩法保留（轻触回应、饱食/心情/精力、106 段动画、完全离线）
+偶鲸鲸 = 泡泡鲸桌宠（完全离线的养成桌宠） × DeepSeek 桌面端（DSH）。
+一个安卓原生 App + 一个 DSH 桥接插件，两者通过 WebSocket 通信。
 
-> 架构：DSH 侧跑一个 **桥接插件**（WebSocket 服务），手机端 APK 是 **WS 客户端**。
-> 语音识别与合成全部在手机本地完成，DSH 只收发文本——不点不联网，保住原项目离线定位。
+---
 
-## 仓库结构
+## 功能总览
 
-```
-dsh-whale-bridge/     DSH 桥接插件 v0.2.0（Agent 版：agents.create 创建真 agent + 手写 RFC6455 WS）
-android/              安卓端源码（fork 自 whale-pet-Android v2.3.0，改动的文件）
-docs/                 APK 交付说明、更新日志
-```
+### 📱 安卓 App（原生 Java，无 WebView、无第三方 UI 库）
 
-## DSH 侧：安装桥接插件
+| 页面 | 功能 |
+|---|---|
+| **任务** | 直读电脑端 DSH 的会话列表（标题 / 在线·运行中状态 / 时间 / 工作目录），点进详情看完整对话（含工具调用与结果），可**给任意会话发消息**、**中止正在运行的任务** |
+| **陪伴** | 和鲸宝聊天：打字或**长按麦克风说话**（系统语音识别 zh-CN，松手发送），回复逐字流式显示；顶部状态灯显示连接状态；聊天记录本地保存 |
+| **互动** | 喂食、玩耍等养成互动（饱食 / 心情 / 精力三围），带动画弹窗 |
+| **足迹** | 养成记录时间线 |
+| **设置** | 连接配置（地址自动补全、配对码、测试连接）、桌宠开关、**宠物大小滑条**（拖动即时生效）、深色模式、关于偶鲸鲸 |
 
-1. 把 `dsh-whale-bridge/` 放到 `$DSH_HOME/plugins/`
-2. 在 DSH profile 里挂载（pnpm）：
+### 🐳 桌面宠物（悬浮窗 + 前台服务）
+
+- 轻触回应、拖动定位、106 段透明角色动画、关屏自动暂停省电
+- **长按鲸鱼 = 说话**：系统语音识别 → 发给 DeepSeek → 头顶气泡逐字流式回复 + 表情动画
+- 大小、位置、深浅色均可调；养成数据完全本地存档
+
+### 🔌 DSH 桥接插件（dsh-whale-bridge/）
+
+装在电脑端 DSH 里，提供：
+
+- **WebSocket**（`/whale-pet/ws`，配对码鉴权）：`hello` 握手 → `user.text` → `agent.delta` 流式 → `agent.done`；另支持 `watch`（订阅桌面会话流式输出）、`session.message`、`session.stop`、`approval.answer`
+- **HTTP API**（`/whale-pet/api/*`，token 鉴权）：
+  - `GET /api/sessions` — 会话列表（标题、live/busy、cwd）
+  - `GET /api/sessions/:id` — 会话详情（分页）
+  - `POST /api/sessions/:id/message` — 给会话发消息（在线直接投递；冷会话自动 resume）
+  - `POST /api/sessions/:id/stop` — 中止任务
+- **远程审批**：电脑端 DSH 请求工具授权时转发到手机，在手机上点允许/拒绝（120 秒无响应回落桌面端）
+- **桌面上下文**：鲸宝每 30 秒「看一眼」电脑上正在跑的会话，能回答「我现在电脑上在跑什么」
+- **公网隧道（可选）**：管理页 `http://电脑IP:28000/whale-pet/tunnel`，一键开 Cloudflare 临时隧道 + 二维码
+
+每个 WS 连接对应一个真实的 DSH Agent（完整工具链：文件读写、搜索、skill、subagent……）。鲸宝不只是聊天机器人，是**能干活的 DeepSeek 分身**。
+
+---
+
+## 系统要求
+
+- 手机：Android 9+（API 28+）
+- 电脑：已安装 DeepSeek 桌面端（DSH）
+- 同一局域网，或自备 Cloudflare 隧道做公网穿透
+
+## 安装
+
+### 1. 电脑端：安装插件
+
+把 `dsh-whale-bridge/` 放到 `$DSH_HOME/plugins/`，在 profile 里挂载：
 
 ```bash
-cd <你的 dsh profile 目录>
-pnpm add link:<绝对路径>/dsh-whale-bridge
+cd <你的 dsh profile 目录>     # profiles/web
+pnpm add link:<绝对路径>/plugins/dsh-whale-bridge
 # 然后在 profile package.json 的 dsh.profile.bundles 数组里加 "dsh-whale-bridge"
+# cordis.patch.yml 示例见仓库内文件；默认配对码是占位符 change-me-pair-code，务必改掉
 ```
 
-3. `cordis.patch.yml` 已含默认配置：路由前缀 `/whale-pet`，配对 token `whale-pair-2026`（**务必改成自己的**）
-4. 重启 DSH，验证：`curl http://<nas>:28000/whale-pet/health` → `{"ok":true}`
+重启 DSH，浏览器打开 `http://电脑IP:28000/whale-pet/health`，返回 `{"ok":true,...}` 即成功。
 
-## 手机侧：连接配置（v4 连接向导）
+### 2. 手机端：安装 APK
 
-APK 首次启动会自动弹出「连接鲸宝的家」设置面板，填两项即可：
+从 [Releases](../../releases) 下载 APK（或自行编译，见下文），需允许「安装未知来源应用」。
 
-| 项 | 说明 |
+首次使用：
+
+1. 打开 App 自动进入设置页。服务器地址**只需填 IP 或域名，会自动补全**：
+   - 同一 WiFi：填 `192.168.x.x:28000` → 自动补成 `ws://192.168.x.x:28000/whale-pet/ws`
+   - 公网：填 `你的域名` → 自动补成 `wss://你的域名/whale-pet/ws`
+2. 填配对码 → 「测试连接」→ 「保存并连接」
+3. 打开「让她到桌面陪我」→ 按提示依次授权悬浮窗、麦克风、通知权限
+
+### 3.（可选）公网访问
+
+| 场景 | 方式 |
 |---|---|
-| **服务器地址** | 完整 WS 地址，见下表按你的场景选 |
-| **配对码** | 与插件 `config.token` 一致，默认 `whale-pair-2026` |
+| 同一 WiFi（推荐） | 内网直连，零配置 |
+| 出门也要用 | 自建 Cloudflare Tunnel（named tunnel，免费、地址固定）：`cloudflared tunnel --url http://127.0.0.1:28000`，手机填 `wss://你的域名/whale-pet/ws` |
+| 临时应急 | 插件管理页点「开启隧道」扫二维码。注意：部分国内网络会拦截临时隧道（trycloudflare.com）的 WebSocket，HTTP 能通但 WS 被掐 |
 
-点「**测试连接**」→ 显示 ✓ 连接成功即自动保存并连上。之后随时可从**通知栏 → 连接设置**修改。
+**安全提醒**：不要把 28000 端口直接暴露公网；改掉默认配对码；公网一律走 wss + 隧道。
 
-### 三种网络场景怎么填地址
+---
 
-| 场景 | 地址形式 | 用户需要准备 |
-|---|---|---|
-| **同一 WiFi（最常见）** | `ws://<电脑或NAS的局域网IP>:28000/whale-pet/ws`，如 `ws://192.168.1.10:28000/whale-pet/ws` | 查电脑/NAS 内网 IP（ipconfig / 路由器后台）；DSH 端口 28000 未被防火墙拦 |
-| **不在同一网络，会 Tailscale** | `ws://<Tailscale主机名或100.x.y.z>:28000/whale-pet/ws` | 两端装 [Tailscale](https://tailscale.com) 并登录同一账号（免费档够用，零配置打洞） |
-| **不在同一网络，要给所有人连** | `wss://xxx.trycloudflare.com/whale-pet/ws` | 自建 Cloudflare Tunnel：`cloudflared tunnel --url http://localhost:28000`（quick tunnel 免费但域名随机重启会变；正式用法绑定自己的域名），且 Cloudflare 自动带 TLS → 用 `wss://` |
-
-> 注意：`ws://` 用于局域网明文，`wss://` 用于有 TLS 的隧道/域名。端口 `28000` 是 DSH 默认 Web 端口，如你改过请同步改地址。
-> 不要把 28000 端口直接映射到公网路由器——要远程就用隧道/Tailscale。
-
-### 编译说明
-
-本仓库不含 182MB 动画素材，需先取原项目素材：
+## 编译 APK（可选）
 
 ```bash
-git clone https://github.com/duoxichangan/whale-pet-Android
-cp -r whale-pet-Android/app/src/main/assets/pet android/src/main/assets/
+# JDK 17 + Android SDK 36，项目零第三方依赖（仅 OkHttp）
+./gradlew :app:assembleDebug
+# 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
-需要 JDK 17 + Android SDK 36，`./gradlew :app:assembleDebug` 即可。
+容器/无桌面环境构建已知坑：设置 `GRADLE_USER_HOME`、`ANDROID_USER_HOME` 到可写目录；cgroup v2 需 `JAVA_TOOL_OPTIONS="-XX:-UseContainerSupport"`（否则 `validateSigningDebug` 报 `ExceptionInInitializerError`）；建议 `--no-daemon`。详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-### 改动清单（相对原项目）
+## 项目结构
 
-| 文件 | 改动 |
+```
+android/                 # 安卓 App 源码（com.whale.pet）
+  MainActivity.java      #   App 外壳：五页导航 + 设置 + 聊天页
+  TasksPage.java         #   任务页（会话列表/详情/发消息/中止）
+  WhaleApi.java          #   插件 HTTP API 客户端
+  WhaleBridge.java       #   WS 客户端（自动重连）
+  WhaleChat.java         #   聊天记录本地存储
+  PetService.java        #   桌宠前台服务 + 悬浮窗 + 气泡
+  PetEngine.java         #   养成引擎（饱食/心情/精力）
+  PetVoice.java          #   系统语音识别封装
+  PetPanel.java          #   互动页（喂食/玩耍）
+  PetJournal.java        #   足迹
+dsh-whale-bridge/        # DSH 桥接插件（Cordis 插件，纯 Node 无第三方依赖）
+  lib/index.js           #   WS + HTTP API + 远程审批 + 桌面上下文
+  lib/cloudflared.mjs    #   Cloudflare 隧道管理器
+  cordis.patch.yml       #   安装 patch 示例
+docs/                    # 部署文档 / 交付说明 / 更新日志
+```
+
+## WS 协议速览
+
+```
+→ {"type":"hello","token":"配对码","petId":"..."}
+← {"type":"hello.ok","model":"...","version":"0.5.0"}
+→ {"type":"user.text","id":"m1","text":"你好"}
+← {"type":"agent.delta","id":"m1","delta":"你"}     （逐字流式）
+← {"type":"agent.done","id":"m1","text":"你好呀"}
+→ {"type":"watch","sessionId":"session-xxx"}         （订阅桌面会话流式输出）
+← {"type":"session.delta","sessionId":"...","delta":"..."}
+→ {"type":"approval.answer","id":"...","outcome":"allowed-once"}
+```
+
+## 致谢 / 参考项目
+
+本项目建立在以下开源项目之上，感谢原作者：
+
+| 项目 | 用途 |
 |---|---|
-| `WhaleBridge.java` | 新增。OkHttp WS 客户端：hello 握手、user.text、agent.delta 流式、agent.done/error、5s 自动重连 |
-| `PetService.java` | 接线桥接：connectBridge / streamMessage（流式只更新气泡文本）/ 长按说话 startListening/endListening / TTS / 通知栏「打字聊天」「连接设置」/ 输入法聚焦修复 / **v4 连接向导 + 测试连接** |
-| `PetVoice.java` | 新增。系统 SpeechRecognizer 封装（zh-CN，partial results，音量回调） |
-| `PetEngine.java` | 加 `playClip(id)`：播动画不影响养成数值 |
-| `PetAnimationView.java` | Gesture 接口加 `holdEnd()`，长按松手正确结束聆听 |
-| `MainActivity.java` | 启动时申请 RECORD_AUDIO |
-| `AndroidManifest.xml` | + INTERNET / ACCESS_NETWORK_STATE / RECORD_AUDIO，usesCleartextTraffic |
-| `app/build.gradle` | + okhttp 4.12.0（唯一第三方依赖） |
+| [duoxichangan/whale-pet-Android](https://github.com/duoxichangan/whale-pet-Android) | **泡泡鲸桌宠本体**：106 段角色动画、养成引擎、悬浮窗前台服务、纯原生零依赖架构，本项目的基座（fork 自 v2.3.0，MIT） |
+| [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 桌宠美术素材来源；其 DSH 插件实现（开放 HTTP API、头顶气泡、工作状态联动）是本插件的设计参考 |
+| [wenbin-wb/dsh-bridge](https://github.com/wenbin-wb/dsh-bridge) | Cloudflare 隧道管理（cloudflared 生命周期 / 健康检查 / 日志轮转）与二维码方案参考；其手机页面适配思路启发了本项目的原生重写 |
+| [LIN428924379/baifanyu](https://github.com/LIN428924379/baifanyu) | 桌宠原生动画渲染的早期参考 |
+| [kazuhikoarase/qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 隧道页二维码（vendored，MIT） |
+| [DeepSeek](https://github.com/deepseek-ai) | DSH 桌面端本体与插件生态（Cordis） |
 
-服务器地址与 token 存在 SharedPreferences（`bridge-url` / `bridge-token`）。**v4 起首次启动弹连接向导，无默认开发者地址**；也可由分发者预置（adb 写入或改默认值后自行编译）。
+## 许可证
 
-## 版本记录
-
-- **插件 v0.2.0（Agent 版）**：每条连接通过 `ctx.agents.create()` 创建真正的 DSH Agent——拥有宿主工具（实测可调用 domain_search 联网检索）、agent 域人设注入（鲸宝人设只影响自己）、`agent/assistant-stream` 流式转发、session 持久化（`sessions/--root--/whale-*`，重连记忆不丢）。WS 协议不变，APK 无需更新
-- **v4**：首次启动连接向导（地址+配对码+测试连接）、通知栏「连接设置」入口、通知栏显示连接状态、去掉硬编码默认地址
-- **v3**：长按说话反馈（音量音符跳动、迟到错误过滤）、回复时 happy 动画
-- **v2**：长按语音输入（系统识别 zh-CN）、TTS 朗读、输入法弹出不修复不弹的 bug、通知栏打字聊天
-- **v1**：文字桥接打通（WS 握手/流式/断线重连）
-
-## WS 协议
-
-```
-→ {"type":"hello","token":"..."}          ← 握手
-← {"type":"hello.ok","model":"..."}
-→ {"type":"user.text","text":"..."}       ← 说话
-← {"type":"agent.delta","text":"..."}     ← 流式增量
-← {"type":"agent.done"} / {"type":"agent.error","message":"..."}
-```
-
-> **Agent 版说明**：插件为每条 WS 连接创建一个独立 DSH Agent（模型跟随 DSH 默认模型）。回复前模型可自由调用宿主注册的工具（搜索、检索等）；人设约束它输出 1~3 句短句适配气泡。换手机重连或杀进程后，只要 sessionId 对应的 session 还在，历史记忆仍然保留。
-
-## 安全提示
-
-- **Agent 版意味着鲸宝能操作你的 DSH 宿主**（执行工具）：token 就是钥匙，配对码务必改成强随机值，不要把带 token 的地址分享给别人
-
-- 不要把 DSH 的 28000 端口暴露公网；跨网段建议 Tailscale / SSH 隧道 / Cloudflare Tunnel（wss）
-- token 仅是简单配对凭据，非加密保证
-
-## License
-
-MIT（沿用原项目）。素材版权归 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) 原作者。
+MIT（延续上游项目许可）。泡泡鲸动画素材版权归上游项目所有，请遵守其许可使用。
