@@ -21,7 +21,7 @@ public final class PetAnimationView extends View implements Drawable.Callback,Ch
     public long draws,lastDrawAt;public String currentId="";public boolean decoded;
     private boolean looping;private long lastFrame;
     private final Runnable longPress=()->{if(tracking&&!dragging){held=true;performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);if(gesture!=null)gesture.hold();}};
-    public PetAnimationView(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);setContentDescription("泡泡桌宠");setClickable(true);}
+    public PetAnimationView(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);setContentDescription("偶鲸鲸桌宠");setClickable(true);}
     public void gesture(Gesture value){gesture=value;}
     public void mirror(boolean value){mirrored=value;invalidate();}
     public static boolean needsMirror(PetCatalog.Clip clip,boolean right){return clip!=null&&(clip.facing.equals("left")?right:clip.facing.equals("right")?!right:false);}

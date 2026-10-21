@@ -44,6 +44,8 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     private int width(){return getResources().getDisplayMetrics().widthPixels;}
     private int height(){return getResources().getDisplayMetrics().heightPixels;}
     private int petSize(){return dp(store.prefs.getInt("size",168));}
+    /** 桌宠大小热更新（App 设置页滑条调用）：改窗体尺寸并重排。 */
+    public void applySize(int px){store.prefs.edit().putInt("size",px).apply();if(lp!=null){lp.width=petSize();lp.height=petSize();if(wm!=null&&root!=null)try{wm.updateViewLayout(root,lp);}catch(Exception ignored){}}layoutPet(false);}
     private void savePosition(){if(positionReady&&lp!=null)store.prefs.edit().putFloat("anchor-x",worldX/Math.max(1,width())).putFloat("anchor-y",worldY/Math.max(1,height())).apply();}
     private void restorePosition(){if(!positionReady){int size=petSize();worldX=store.prefs.contains("anchor-x")?store.prefs.getFloat("anchor-x",.8f)*width():store.prefs.getFloat("x",.8f)*(width()-size)+size/2f;worldY=store.prefs.contains("anchor-y")?store.prefs.getFloat("anchor-y",.8f)*height():store.prefs.getFloat("y",.72f)*(height()-size-dp(30))+size;positionReady=true;}worldX=Math.max(petSize()*.4f,Math.min(width()-petSize()*.4f,worldX));worldY=Math.max(petSize()+dp(28),Math.min(height()-dp(30),worldY));}
     @Override public void onCreate(){
@@ -149,7 +151,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         root=new FrameLayout(this){@Override public boolean dispatchTouchEvent(MotionEvent e){return pet.dispatchTouchEvent(e);}};
         root.addView(pet,new FrameLayout.LayoutParams(-1,petSize(),Gravity.BOTTOM));root.addView(bubble,new FrameLayout.LayoutParams(-1,dp(52),Gravity.TOP));bubble.setVisibility(View.GONE);
         lp=new WindowManager.LayoutParams(petSize(),petSize(),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,PixelFormat.TRANSLUCENT);
-        lp.gravity=Gravity.TOP|Gravity.LEFT;lp.setTitle("泡泡鲸·桌面宠物");restorePosition();
+        lp.gravity=Gravity.TOP|Gravity.LEFT;lp.setTitle("偶鲸鲸·桌面宠物");restorePosition();
         try{wm.addView(root,lp);}catch(Exception e){android.util.Log.e("WhaleNative","Cannot attach overlay",e);pet.release();pet=null;root=null;store.prefs.edit().putBoolean("enabled",false).apply();stopSelf();}
     }
     @Override public int onStartCommand(Intent intent,int flags,int id){
@@ -227,7 +229,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         },true);panel.setTag("actions-panel");box.addView(panel,new LinearLayout.LayoutParams(-1,0,1));
         addChatRow(box,p);
         LinearLayout footer=Ui.row(this);footer.setTag("menu-footer");Ui.weight(footer,Ui.labeled(c,"回到小屋","home",p,PetService.this::openApp),3);Ui.weight(footer,Ui.labeled(c,"待会儿见","moon",p,PetService.this::stopPet),3);Ui.add(box,footer,-2,4);
-        menuLp=new WindowManager.LayoutParams(Math.min(dp(352),width()-dp(24)),Math.min(dp(570),height()-dp(100)),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT);menuLp.gravity=Gravity.CENTER;menuLp.setTitle("泡泡鲸·互动菜单");menu=box;
+        menuLp=new WindowManager.LayoutParams(Math.min(dp(352),width()-dp(24)),Math.min(dp(570),height()-dp(100)),WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,PixelFormat.TRANSLUCENT);menuLp.gravity=Gravity.CENTER;menuLp.setTitle("偶鲸鲸·互动菜单");menu=box;
         try{wm.addView(menu,menuLp);Ui.enter(menu);}catch(Exception e){menu=null;engine.menu(false);}
     }
     private void resizeMenu(boolean confirmation){
@@ -292,7 +294,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         Ui.weight(row,test,1);Ui.weight(row,save,1);Ui.add(box,row,dp(44),2);
         settings=box;
         settingsLp=new WindowManager.LayoutParams(Math.min(dp(360),width()-dp(24)),WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,first?0:(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE),PixelFormat.TRANSLUCENT);
-        settingsLp.gravity=Gravity.CENTER;settingsLp.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;settingsLp.setTitle("泡泡鲸·连接设置");
+        settingsLp.gravity=Gravity.CENTER;settingsLp.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;settingsLp.setTitle("偶鲸鲸·连接设置");
         try{wm.addView(settings,settingsLp);Ui.enter(settings);}catch(Exception e){settings=null;}
     }
     void hideSettings(){if(settings!=null){try{wm.removeView(settings);}catch(IllegalArgumentException ignored){}settings=null;}}

@@ -730,6 +730,39 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         overlayTip.setPadding(0, dp(8), 0, 0);
         pet.addView(overlayTip, new LinearLayout.LayoutParams(-1, -2));
 
+        TextView sizeLabel = new TextView(this);
+        int curSize = store.prefs.getInt("size", 168);
+        sizeLabel.setText("宠物大小 · " + curSize);
+        sizeLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        sizeLabel.setTextColor(palette.ink);
+        sizeLabel.setPadding(0, dp(14), 0, dp(6));
+        pet.addView(sizeLabel, new LinearLayout.LayoutParams(-1, -2));
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(120); // 108 ~ 228
+        seek.setProgress(curSize - 108);
+        seek.getProgressDrawable().setColorFilter(palette.blue, android.graphics.PorterDuff.Mode.SRC_IN);
+        try { seek.getThumb().setColorFilter(palette.blue, android.graphics.PorterDuff.Mode.SRC_IN); } catch (Exception ignored) { }
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar sb, int v, boolean fromUser) {
+                int size = v + 108;
+                sizeLabel.setText("宠物大小 · " + size);
+                if (fromUser) {
+                    store.prefs.edit().putInt("size", size).apply();
+                    PetService svc = PetService.instance;
+                    if (svc != null) svc.applySize(size);
+                }
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar sb) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar sb) { }
+        });
+        pet.addView(seek, new LinearLayout.LayoutParams(-1, -2));
+        TextView sizeHint = new TextView(this);
+        sizeHint.setText("拖动调整桌面鲸鱼的大小，立即生效。");
+        sizeHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        sizeHint.setTextColor(palette.muted);
+        sizeHint.setPadding(0, dp(4), 0, 0);
+        pet.addView(sizeHint, new LinearLayout.LayoutParams(-1, -2));
+
         LinearLayout ui = section(body);
         cardTitle(ui, "显示");
         Switch dark = new Switch(this);
@@ -747,12 +780,21 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         ui.addView(dark, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout about = section(body);
-        cardTitle(about, "关于");
+        cardTitle(about, "关于偶鲸鲸");
         TextView ver = new TextView(this);
-        ver.setText("泡泡鲸 · 口袋里的海 × DeepSeek\nv22 · 原生客户端（无网页）");
+        ver.setText("偶鲸鲸 · 口袋里的海 × DeepSeek\n原生客户端（无网页）\n基于开源项目 泡泡鲸（whale-pet）改造");
         ver.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         ver.setTextColor(palette.muted);
+        ver.setLineSpacing(dp(3), 1);
         about.addView(ver, new LinearLayout.LayoutParams(-1, -2));
+        TextView link = new TextView(this);
+        link.setText("GitHub 项目地址 >");
+        link.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        link.setTextColor(palette.blue);
+        link.setTypeface(Typeface.DEFAULT_BOLD);
+        link.setPadding(0, dp(10), 0, 0);
+        link.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/xuanduo-077/dsh-pet-on-phone"))));
+        about.addView(link, new LinearLayout.LayoutParams(-1, -2));
     }
 
     private void saveConn() {

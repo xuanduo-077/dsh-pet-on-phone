@@ -60,6 +60,6 @@ public final class PetStore {
         ids.put(id);s.put("recentCommitIds",tail(ids,100));prefs.edit().putString(KEY,s.toString()).apply();return true;
     }catch(JSONException e){throw new IllegalStateException(e);}}}
     private static JSONArray tail(JSONArray a,int n){JSONArray out=new JSONArray();for(int i=Math.max(0,a.length()-n);i<a.length();i++)out.put(a.opt(i));return out;}
-    public String name(){return prefs.getString("name","泡泡");}
+    public String name(){return prefs.getString("name","偶鲸鲸");}
     public boolean dark(){return prefs.getBoolean("dark",false);}
 }

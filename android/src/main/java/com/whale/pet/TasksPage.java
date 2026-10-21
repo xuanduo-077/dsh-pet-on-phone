@@ -163,7 +163,7 @@ final class TasksPage {
     private View row(JSONObject o) {
         final String id = o.optString("id", "");
         String title = o.optString("title", "");
-        if (title == null || title.isEmpty()) title = id.startsWith("session-") ? "会话 " + id.substring(8, Math.min(16, id.length())) : id;
+        if (title == null || title.isEmpty() || title.equals("null")) title = "空闲会话 · " + (id.startsWith("session-") ? id.substring(8, Math.min(13, id.length())) : id);
         final String fid = id, ftitle = title;
         boolean isLive = o.optBoolean("live", false), busy = o.optBoolean("busy", false);
 
