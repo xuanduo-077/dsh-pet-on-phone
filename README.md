@@ -64,13 +64,11 @@
 
 ### 1. 电脑端：安装插件
 
-**方式一（推荐）：npm 安装，一条命令**
+**方式一（推荐）：下载安装包**
 
-```bash
-npx @deepseek-ai/dsh plugin --profile web add @shadow077/dsh-whale-bridge
-```
+从 [Releases](../../releases) 下载 `dsh-whale-bridge-plugin.zip`，解压后把 `dsh-whale-bridge/` 放到 `$DSH_HOME/plugins/`，再按方式二挂载。
 
-**方式二：手动安装**
+**方式二：手动安装（源码在本仓库）**
 
 把 `dsh-whale-bridge/` 放到 `$DSH_HOME/plugins/`，在 profile 里挂载：
 
@@ -85,7 +83,7 @@ pnpm add link:<绝对路径>/plugins/dsh-whale-bridge
 
 ### 2. 手机端：安装 APK
 
-从 [Releases](../../releases) 下载 APK（或自行编译，见下文），需允许「安装未知来源应用」。
+从 [Releases](../../releases) 下载 `ouwhale-v24.apk`（或自行编译，见下文），需允许「安装未知来源应用」。
 
 首次使用：
 
