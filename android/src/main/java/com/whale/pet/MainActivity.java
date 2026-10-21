@@ -244,6 +244,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         bar.addView(webBarBtn("\u25a3 工作区",0,new Runnable(){public void run(){toggleWebPanel();}}),webBarLp());
         bar.addView(webBarBtn("\u2699 设置",0,new Runnable(){public void run(){openDshSettings();}}),webBarLp());
         bar.addView(webBarBtn("\u27f3 刷新",0,new Runnable(){public void run(){if(web!=null)web.reload();}}),webBarLp());
+        bar.addView(webBarBtn("\u26a0 \u8bca\u65ad",0,new Runnable(){public void run(){webDiag();}}),webBarLp());
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,dp(52));
         lp.gravity=android.view.Gravity.TOP;
         pageHost.addView(bar,lp);
@@ -260,33 +261,60 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         t.setOnClickListener(v->action.run());
         return t;
     }
-    /** 执行一段网页脚本（自动带上按 aria-label/title/class 找按钮的 wbFind 工具函数）。 */
-    private void webJs(String body){
-        if(web==null)return;
+    private void webJs(String body){webJs(body,null);}
+    /** 执行一段网页脚本（自动带上 wbFind 找按钮 + wbTap 派发完整点击序列），结果可回显到 Toast 便于排查。 */
+    private void webJs(String body,final String tag){
+        if(web==null){if(tag!=null)toast(tag+": \u7f51\u9875\u672a\u521d\u59cb\u5316");return;}
         web.evaluateJavascript("(function(){"
             +"function wbFind(re){var b=document.querySelectorAll('button,[role=\"button\"]');"
             +"for(var i=0;i<b.length;i++){var l=(b[i].getAttribute('aria-label')||'')+' '+(b[i].getAttribute('title')||'')+' '+(b[i].className||'');"
             +"if(re.test(l))return b[i];}return null;}"
-            +body+"})();",null);
+            +"function wbTap(el){if(!el)return false;try{var r=el.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;"
+            +"var o={bubbles:true,cancelable:true,composed:true,clientX:x,clientY:y,view:window,button:0};"
+            +"[new PointerEvent('pointerdown',o),new MouseEvent('mousedown',o),new PointerEvent('pointerup',o),new MouseEvent('mouseup',o),new MouseEvent('click',o)].forEach(function(e){el.dispatchEvent(e);});"
+            +"el.click();return true;}catch(err){try{el.click();return true;}catch(e2){return false;}}}"
+            +"try{"+body+"}catch(err){return 'ERR:'+err.message;}})();",
+            tag==null?null:new android.webkit.ValueCallback<String>(){
+                @Override public void onReceiveValue(String v){toast(tag+" \u2192 "+v);}
+            });
+    }
+    /** 把网页内部状态（有无 dsh 手机头、按钮标签、JS 是否可执行）弹窗显示，用于手机端排查。 */
+    private void webDiag(){
+        if(web==null){toast("\u7f51\u9875\u672a\u521d\u59cb\u5316");return;}
+        web.evaluateJavascript("(function(){"
+            +"var labels=[];var bs=document.querySelectorAll('button,[role=\"button\"]');"
+            +"for(var i=0;i<bs.length&&labels.length<26;i++){var r=bs[i].getBoundingClientRect();if(r.width<1)continue;"
+            +"var l=(bs[i].getAttribute('aria-label')||bs[i].getAttribute('title')||(bs[i].innerText||'').trim().slice(0,12));if(l)labels.push(l);}"
+            +"return JSON.stringify({js:true,href:location.href,lang:document.documentElement.lang,"
+            +"mobileHeader:!!document.querySelector('.dsh-mobile-app-header'),menuBtn:!!document.querySelector('.dsh-header-menu-btn'),"
+            +"body:document.body.className,cleanCss:!!document.getElementById('whale-clean-css'),labels:labels});})();",
+            new android.webkit.ValueCallback<String>(){
+                @Override public void onReceiveValue(String v){
+                    String text=v;try{text=new org.json.JSONObject(v).toString(2);}catch(Exception ignored){}
+                    new AlertDialog.Builder(MainActivity.this).setTitle("\u7f51\u9875\u8bca\u65ad").setMessage(text).setPositiveButton("\u597d",null).show();
+                }
+            });
     }
     /** 打开/关闭左侧边栏（会话列表 / 设置入口）。 */
     private void toggleWebDrawer(){
-        webJs("var b=document.querySelector('.dsh-header-menu-btn');if(b){b.click();return;}"
-            +"if(document.body.classList.contains('dsh-drawer-open')){document.body.classList.remove('dsh-drawer-open');return;}"
+        webJs("var b=document.querySelector('.dsh-header-menu-btn');if(b){wbTap(b);return 'menuBtn';}"
+            +"if(document.body.classList.contains('dsh-drawer-open')){document.body.classList.remove('dsh-drawer-open');return 'closed';}"
             +"document.body.classList.add('dsh-drawer-open');"
-            +"var e=wbFind(/(\u6253\u5f00|\u5c55\u5f00)\u4fa7\u8fb9\u680f|Open sidebar|Collapse sidebar|\u6536\u8d77\u4fa7\u8fb9\u680f/i);if(e)e.click();");
+            +"var e=wbFind(/(\u6253\u5f00|\u5c55\u5f00)\u4fa7\u8fb9\u680f|Open sidebar|\u6536\u8d77\u4fa7\u8fb9\u680f|Collapse sidebar/i);if(e){wbTap(e);return 'host:'+(e.getAttribute('aria-label')||'');}"
+            +"return 'classOnly';","\u83dc\u5355");
     }
     /** 打开/关闭右侧工作区面板（含文件、终端、任务）。 */
     private void toggleWebPanel(){
         webJs("var e=wbFind(/\u53f3\u4fa7\u680f|\u53f3\u4fa7\u8fb9\u680f|\u9762\u677f|\u5de5\u4f5c\u533a|right sidebar|workspace|panel/i);"
-            +"if(e){e.click();}else{document.body.classList.add('dsh-workbench-open');}");
+            +"if(e){wbTap(e);document.body.classList.add('dsh-workbench-open');return 'tap:'+(e.getAttribute('aria-label')||e.className);}"
+            +"document.body.classList.add('dsh-workbench-open');return 'classOnly';","\u5de5\u4f5c\u533a");
     }
     /** 打开 DSH 网页里的设置（即使抽屉没打开也能直接点）。 */
     private void openDshSettings(){
         webJs("var e=wbFind(/\u8bbe\u7f6e|Settings/);"
-            +"if(e){e.click();return;}"
-            +"var m=document.querySelector('.dsh-header-menu-btn');if(m){m.click();"
-            +"setTimeout(function(){var f=wbFind(/\u8bbe\u7f6e|Settings/);if(f)f.click();},420);}");
+            +"if(e){wbTap(e);return 'tap:'+(e.getAttribute('aria-label')||e.innerText||'').slice(0,14);}"
+            +"var m=document.querySelector('.dsh-header-menu-btn');if(!m)return 'noSettingsBtn';"
+            +"wbTap(m);setTimeout(function(){var f=wbFind(/\u8bbe\u7f6e|Settings/);if(f)wbTap(f);},450);return 'retryAfterDrawer';","\u8bbe\u7f6e");
     }
     private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);View bar=pageHost.findViewWithTag("web-bar");if(bar!=null)bar.setVisibility(View.GONE);}
     @Override public boolean onKeyDown(int keyCode,android.view.KeyEvent event){
