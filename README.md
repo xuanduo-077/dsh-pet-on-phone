@@ -64,6 +64,14 @@
 
 ### 1. 电脑端：安装插件
 
+**方式一（推荐）：npm 安装，一条命令**
+
+```bash
+npx @deepseek-ai/dsh plugin --profile web add @shadow077/dsh-whale-bridge
+```
+
+**方式二：手动安装**
+
 把 `dsh-whale-bridge/` 放到 `$DSH_HOME/plugins/`，在 profile 里挂载：
 
 ```bash
