@@ -302,7 +302,10 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     /** 用户输入容错：纯 IP / host:port / 域名 自动补成完整 ws 地址；已带 ws:// wss:// http(s):// 的自动转换。 */
     static String normalizeWsUrl(String raw){
         if(raw==null)return null;raw=raw.trim();if(raw.isEmpty())return null;
-        if(raw.startsWith("ws://")||raw.startsWith("wss://")){return raw.endsWith("/")?raw:raw+"/";}
+        if(raw.startsWith("ws://")||raw.startsWith("wss://")){
+            if(raw.contains("/whale-pet/ws"))return raw.endsWith("/")?raw.substring(0,raw.length()-1):raw;
+            return raw+(raw.endsWith("/")?"":"/")+"whale-pet/ws";
+        }
         if(raw.startsWith("http://"))return "ws://"+raw.substring(7)+(raw.endsWith("/")?"":"/")+"";
         if(raw.startsWith("https://"))return "wss://"+raw.substring(8)+(raw.endsWith("/")?"":"/")+"";
         String path=raw.matches(".*:\\d+.*")?"/whale-pet/ws":"/whale-pet/ws"; // 统一路径

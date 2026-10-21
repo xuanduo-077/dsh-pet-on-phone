@@ -649,6 +649,10 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         LinearLayout.LayoutParams urlLp = new LinearLayout.LayoutParams(-1, -2);
         urlLp.setMargins(0, dp(12), 0, 0);
         card.addView(urlIn, urlLp);
+        // 输完切走时自动补全地址（只填域名/IP 也可以）
+        urlIn.setOnFocusChangeListener((v, has) -> {
+            if (!has) autoCompleteUrl();
+        });
         tokenIn = new EditText(this);
         tokenIn.setSingleLine(true);
         tokenIn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -671,6 +675,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         test.setGravity(Gravity.CENTER);
         test.setBackground(Ui.round(palette.soft, palette.line, dp(14), this));
         test.setOnClickListener(v -> {
+            autoCompleteUrl();
             String u = urlIn.getText().toString().trim();
             if (u.isEmpty()) { toast("先填服务器地址"); return; }
             saveConn();
@@ -798,10 +803,23 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     }
 
     private void saveConn() {
+        autoCompleteUrl();
         store.prefs.edit()
                 .putString("bridge-url", urlIn.getText().toString().trim())
                 .putString("bridge-token", tokenIn.getText().toString().trim())
                 .apply();
+    }
+
+    /** 地址自动补全：只填域名/IP 也能连。展示补全结果回输入框。 */
+    private void autoCompleteUrl() {
+        if (urlIn == null) return;
+        String raw = urlIn.getText().toString().trim();
+        if (raw.isEmpty()) return;
+        String full = PetService.normalizeWsUrl(raw);
+        if (full != null && !full.equals(raw)) {
+            urlIn.setText(full);
+            urlIn.setSelection(full.length());
+        }
     }
 
     private String statusText() {
@@ -846,10 +864,17 @@ public final class MainActivity extends Activity implements PetEngine.Host {
             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
             return;
         }
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9);
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+        // 麦克风：必须先弹系统授权框（异步），等用户答复后再继续启动流程
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingStart = true; // 授权回来后在 onResume/onRequestPermissionsResult 里继续
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 10);
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            pendingStart = true;
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 9);
+            return;
+        }
         store.prefs.edit().putBoolean("enabled", true).apply();
         try {
             startForegroundService(new Intent(this, PetService.class));
@@ -862,6 +887,23 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     private void stopPet() {
         store.prefs.edit().putBoolean("enabled", false).apply();
         stopService(new Intent(this, PetService.class));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        if (requestCode == 10 || requestCode == 9) {
+            boolean granted = grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED;
+            if (requestCode == 10 && !granted) {
+                toast("没有麦克风权限也能用打字聊天，长按说话需要授权");
+                // 不阻塞：继续启动（打字不需要麦克风）
+            }
+            if (pendingStart) {
+                pendingStart = false;
+                if (Settings.canDrawOverlays(this)) startPet();
+            } else if (store.prefs.getBoolean("enabled", false) && PetService.instance == null) {
+                startPet();
+            }
+        }
     }
 
     private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); }
