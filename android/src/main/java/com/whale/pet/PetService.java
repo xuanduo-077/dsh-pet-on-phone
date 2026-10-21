@@ -23,6 +23,14 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
     private boolean registered,screenActive,dragging,bubbleBelow;private float worldX,worldY;private boolean positionReady;private PetCatalog.Clip shownClip;private String bubbleText="";private int motionTarget;
     private final String session=UUID.randomUUID().toString();private long taps,holds,sleeps;
     private WhaleBridge bridge;private boolean streamBubble;private final StringBuilder streamBuf=new StringBuilder();
+    /** 供 App 界面显示鲸宝连接状态。 */
+    public boolean bridgeReady(){return bridge!=null&&bridge.isReady();}
+    /** 聊天记录版本号：每次写入 +1，聊天页轮询刷新。 */
+    public static volatile int chatVersion=0;
+    /** 给 App 聊天页读的实时流式文本（onDelta 累积，onDone/onError 清空）。 */
+    public static volatile String streamingText="";
+    public static volatile int streamVersion=0;
+    private void logChat(String role,String text){WhaleChat.append(store.prefs,role,text);chatVersion++;}
     private View settings;private WindowManager.LayoutParams settingsLp;
     private PetVoice voice;private boolean voiceListening;
     private final Runnable careTick=new Runnable(){@Override public void run(){if(screenActive){reminders();snapshot();handler.postDelayed(this,5000);}}};
@@ -57,10 +65,11 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         if(url.isEmpty()){showSettings(true);return;}
         bridge=new WhaleBridge(url,token,new WhaleBridge.Listener(){
             @Override public void onReady(String model){message("鲸宝上线啦，长按我说话");updateNotification();}
-            @Override public void onDelta(String delta){if(!streamBubble){engine.playClip("happy");}streamBuf.append(delta);streamMessage(streamBuf.toString());}
-            @Override public void onDone(String fullText){streamBubble=false;streamBuf.setLength(0);message(fullText);}
-            @Override public void onError(String m){streamBubble=false;streamBuf.setLength(0);message("…"+m);if(m!=null&&m.contains("配对码"))updateNotification();}
-            @Override public void onDisconnected(){if(streamBubble){streamBubble=false;streamBuf.setLength(0);message("鲸宝掉线了，正在重连…");}updateNotification();}
+            @Override public void onDelta(String delta){if(!streamBubble){engine.playClip("happy");}streamBuf.append(delta);streamingText=streamBuf.toString();streamVersion++;streamMessage(streamBuf.toString());}
+            @Override public void onDone(String fullText){streamBubble=false;streamBuf.setLength(0);streamingText="";streamVersion++;logChat("w",fullText);message(fullText);}
+            @Override public void onError(String m){streamBubble=false;streamBuf.setLength(0);streamingText="";streamVersion++;message("…"+m);if(m!=null&&m.contains("配对码"))updateNotification();}
+            @Override public void onDisconnected(){if(streamBubble){streamBubble=false;streamBuf.setLength(0);streamingText="";streamVersion++;message("鲸宝掉线了，正在重连…");}updateNotification();}
+            @Override public void onDisconnectReason(String reason){android.util.Log.w("WhaleBridge","main reason: "+reason);}
         });
         bridge.connect();
         voice=new PetVoice(this);
@@ -88,6 +97,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
             @Override public void onFinal(String text){
                 voiceListening=false;
                 if(text==null||text.trim().isEmpty()){message("没听清，再长按说一次吧");return;}
+                logChat("u",text.trim());
                 engine.playClip("happy");
                 thinking("「"+text.trim()+"」");
                 sendToWhale(text.trim());
@@ -108,11 +118,21 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         streamBubble=true;bubbleText=question+" …";bubble.text(bubbleText);bubble.setVisibility(View.VISIBLE);
         handler.removeCallbacks(clearBubble);
     }
-    /** 发一句话给鲸宝（语音/打字共用） */
-    private void sendToWhale(String text){
+    /** 发一句话给鲸宝（语音/打字共用）。fromApp=true 表示来自聊天页，不重复记（聊天页已记）。 */
+    private void sendToWhale(String text){sendToWhale(text,false);}
+    private void sendToWhale(String text,boolean fromApp){
+        logChat("u",text);
         if(bridge==null||!bridge.isReady()){message("鲸宝还没连上，等一下再试");return;}
         if(!streamBubble){message("…");}bridge.sendText(text);
     }
+    /** 聊天页发送入口：App 打开时 PetService 常驻，直接走这里（气泡照样显示）。 */
+    public void sendFromApp(String text){sendToWhale(text,true);}
+    /** App 聊天页按住说话：按下开始、松开发送。 */
+    /** 设置里改完地址/配对码后立刻重连（不用杀进程）。 */
+    public void reconnect(){connectBridge();updateNotification();}
+    public void beginVoice(){if(!bridgeReady()){message("鲸宝还没连上，先去设置里配地址");return;}startListening();}
+    public void endVoice(){endListening();}
+    public boolean voiceBusy(){return voiceListening;}
     /** 聊天输入行：放进长按菜单，避免额外 overlay 窗口。 */
     private void addChatRow(LinearLayout box,Ui.Palette p){
         LinearLayout chat=Ui.row(this);chat.setTag("chat-input");EditText input=new EditText(this);input.setHint("跟鲸宝说点什么…");input.setTextSize(14);input.setMaxLines(1);input.setBackground(null);input.setTextColor(p.ink);input.setHintTextColor(0x88000000);
@@ -120,7 +140,7 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         input.setOnFocusChangeListener((v,has)->makeMenuFocusable(has));
         input.setOnClickListener(v->makeMenuFocusable(true));
         chat.addView(input,new LinearLayout.LayoutParams(0,-2,1));
-        TextView send=Ui.text(this,"发送",14,p.ink,true);send.setPadding(dp(10),dp(6),dp(4),dp(6));send.setOnClickListener(v->{String t=input.getText().toString().trim();if(t.isEmpty())return;input.setText("");if(bridge!=null&&bridge.isReady()){message("…");bridge.sendText(t);}else message("还没连上鲸宝的家，等一下再试");});
+        TextView send=Ui.text(this,"发送",14,p.ink,true);send.setPadding(dp(10),dp(6),dp(4),dp(6));send.setOnClickListener(v->{String t=input.getText().toString().trim();if(t.isEmpty())return;input.setText("");sendToWhale(t);});
         chat.addView(send,-2,-2);Ui.add(box,chat,-2,4);
     }
     private void createPet(){
@@ -288,16 +308,23 @@ public final class PetService extends Service implements PetEngine.Host,PetAnima
         return "ws://"+raw+(raw.endsWith("/")?"":"/")+path.replaceFirst("/","");
     }
     private void testBridge(String url,String token,java.util.function.Consumer<String> done){
+        testBridgeStatic(this,url,token,done);
+    }
+    /** 供设置页独立测试连接（不依赖服务实例）。 */
+    public static void testBridgeStatic(Context ctx,String url,String token,java.util.function.Consumer<String> done){
         final WhaleBridge[] holder=new WhaleBridge[1];
+        final Handler h=new Handler(Looper.getMainLooper());
+        final String[] failReason={null};
         holder[0]=new WhaleBridge(url,token,new WhaleBridge.Listener(){
             @Override public void onReady(String model){holder[0].close();done.accept(null);}
             @Override public void onDelta(String d){}
             @Override public void onDone(String t){}
             @Override public void onError(String m){holder[0].close();done.accept(m);}
-            @Override public void onDisconnected(){done.accept("连不上服务器，检查地址/网络（插件启动了吗？端口通吗？）");}
+            @Override public void onDisconnected(){done.accept("连不上服务器"+(failReason[0]!=null?"："+failReason[0]:"，检查地址/网络"));}
+            @Override public void onDisconnectReason(String reason){failReason[0]=reason;}
         });
         holder[0].connect();
-        handler.postDelayed(()->{if(!holder[0].isReady()){holder[0].close();done.accept("超时：10 秒内没连上，检查地址和防火墙");}},10000);
+        h.postDelayed(()->{if(!holder[0].isReady()){holder[0].close();done.accept("连接超时（20秒）。地址对吗？手机网络能访问该域名吗？");}},20000);
     }
     private void updateNotification(){getSystemService(NotificationManager.class).notify(7,notification());}
     private void dismissMenu(){if(menu==null)return;if(!ValueAnimator.areAnimatorsEnabled()){hideMenu();return;}menu.animate().alpha(0).scaleX(.98f).scaleY(.98f).setDuration(120).withEndAction(this::hideMenu).start();}

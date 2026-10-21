@@ -26,6 +26,7 @@ public final class WhaleBridge {
         void onDone(String fullText);
         void onError(String message);
         void onDisconnected();
+        void onDisconnectReason(String reason);
     }
 
     private static final String TAG = "WhaleBridge";
@@ -47,7 +48,7 @@ public final class WhaleBridge {
         this.token = token;
         this.listener = listener;
         this.client = new OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
+                .connectTimeout(25, TimeUnit.SECONDS)
                 .readTimeout(0, TimeUnit.MILLISECONDS)
                 .pingInterval(20, TimeUnit.SECONDS)
                 .build();
@@ -64,7 +65,9 @@ public final class WhaleBridge {
             @Override public void onMessage(WebSocket webSocket, String text) { handleMessage(text); }
             @Override public void onClosed(WebSocket webSocket, int code, String reason) { handleDisconnect("closed"); }
             @Override public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                handleDisconnect(t != null ? t.getMessage() : "failure");
+                String msg = t != null ? t.getClass().getSimpleName() + ": " + t.getMessage() : "failure";
+                if (response != null) msg += " (HTTP " + response.code() + ")";
+                handleDisconnect(msg);
             }
         });
     }
@@ -120,7 +123,7 @@ public final class WhaleBridge {
         ws = null;
         ready = false;
         Log.w(TAG, "disconnected: " + reason);
-        main.post(() -> listener.onDisconnected());
+        main.post(() -> { listener.onDisconnected(); listener.onDisconnectReason(reason); });
         if (shouldRun) {
             main.postDelayed(() -> { if (shouldRun && ws == null) connect(); }, RECONNECT_DELAY_MS);
         }

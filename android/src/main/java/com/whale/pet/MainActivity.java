@@ -18,25 +18,27 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     static volatile boolean visible;
     private PetStore store;private PetCatalog catalog;private PetEngine engine;private Ui.Palette palette;
     private LinearLayout shell,nav,homeMeters;private FrameLayout pageHost;private PetAnimationView heroPet,dialogPet;
-    private TextView launchTitle,sceneStatus;private Ui.Bubble homeBubble;private Dialog actionDialog;private int page;private boolean journalAll;private int bubbleTicket;
+    private TextView launchTitle,sceneStatus,barTitle;private LinearLayout barActions,tabs;private Ui.Bubble homeBubble;private Dialog actionDialog;private int page;private boolean journalAll;private int bubbleTicket;
     private android.widget.FrameLayout drawerHost;private LinearLayout drawerBody;private TextView drawerStatus;private View drawerScrim;
     private final Map<String,TextView> homeModes=new HashMap<>();
-    private android.webkit.WebView web;private ScrollView chatScroll;private LinearLayout chatList;private int chatTicket;
+    private int chatSeen,streamSeen;private TasksPage tasks;private ScrollView chatScroll;private LinearLayout chatList;private int chatTicket;
     private boolean pendingStart,resumed;private final Handler handler=new Handler(Looper.getMainLooper());
-    private final Runnable refresh=new Runnable(){@Override public void run(){if(resumed){if(page!=0){refreshHome();updateDrawer();}handler.postDelayed(this,10000);}}};
+    private final Runnable refresh=new Runnable(){@Override public void run(){if(resumed){if(page==2||page==3){refreshHome();updateDrawer();}handler.postDelayed(this,10000);}}};
     private int dp(float n){return Ui.dp(this,n);}
     @Override public void onCreate(Bundle saved){super.onCreate(saved);store=new PetStore(this);catalog=new PetCatalog(this);engine=new PetEngine(store,catalog,this);if(saved!=null)page=saved.getInt("page",0);build();}
     private void build(){
         if(heroPet!=null)heroPet.release();heroPet=null;palette=new Ui.Palette(store.dark());shell=Ui.column(this);shell.setBackgroundColor(palette.bg);
         drawerHost=new android.widget.FrameLayout(this);drawerHost.addView(shell,new android.widget.FrameLayout.LayoutParams(-1,-1));setContentView(drawerHost);
         shell.setOnApplyWindowInsetsListener((v,insets)->{if(Build.VERSION.SDK_INT>=30){android.graphics.Insets bars=insets.getInsets(WindowInsets.Type.statusBars()|WindowInsets.Type.displayCutout());v.setPadding(bars.left,bars.top,bars.right,insets.getInsets(WindowInsets.Type.ime()).bottom);}else v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),0);return insets;});shell.requestApplyInsets();
-        pageHost=new FrameLayout(this);shell.addView(pageHost,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout top=Ui.row(this);top.setPadding(dp(12),dp(6),dp(12),dp(6));top.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView menuBtn=Ui.iconButton(this,"journal","打开菜单",palette,()->openDrawer());menuBtn.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(menuBtn,new LinearLayout.LayoutParams(dp(44),dp(44)));
-        TextView brand=Ui.text(this,"DeepSeek · "+store.name(),14,palette.ink,true);brand.setPadding(dp(6),0,0,0);top.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
-        ImageView chatBtn=Ui.iconButton(this,"chat","刷新会话",palette,()->{if(web!=null)web.reload();});chatBtn.setPadding(dp(10),dp(10),dp(10),dp(10));top.addView(chatBtn,new LinearLayout.LayoutParams(dp(44),dp(44)));
+        LinearLayout top=Ui.row(this);top.setPadding(dp(20),dp(12),dp(10),dp(4));top.setGravity(Gravity.CENTER_VERTICAL);
+        barTitle=Ui.text(this,"任务",22,palette.ink,true);top.addView(barTitle,new LinearLayout.LayoutParams(0,-2,1));
+        barActions=Ui.row(this);barActions.setGravity(Gravity.CENTER_VERTICAL);top.addView(barActions,new LinearLayout.LayoutParams(-2,-2));
         shell.addView(top,new LinearLayout.LayoutParams(-1,-2));
+        pageHost=new FrameLayout(this);shell.addView(pageHost,new LinearLayout.LayoutParams(-1,0,1));
+        buildTabs();
         buildDrawer();
+        // 第一次用还没配地址：直接进设置页，别让人对着一片空白发呆
+        if(store.prefs.getString("bridge-url","").trim().isEmpty())page=4;
         renderPage();appearance();
     }
     /** 轻量侧滑抽屉（零依赖）：scrim + 平移动画。 */
@@ -57,7 +59,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         Ui.add(drawerBody,head,-2,0);
         Ui.rule(drawerBody,palette);
         LinearLayout items=Ui.column(this);
-        String[] names={"会话","互动","足迹","设置"};
+        String[] names={"任务","陪伴","足迹","设置"};
         String[] icons={"chat","heart","journal","settings"};
         for(int i=0;i<4;i++){final int target=i;
             LinearLayout item=Ui.row(this);item.setGravity(Gravity.CENTER_VERTICAL);item.setPadding(dp(14),dp(13),dp(14),dp(13));
@@ -82,16 +84,61 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     private void appearance(){getWindow().setStatusBarColor(palette.bg);getWindow().setNavigationBarColor(palette.bg);getWindow().getDecorView().setSystemUiVisibility(palette.dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);if(Build.VERSION.SDK_INT>=30){WindowInsetsController c=getWindow().getInsetsController();if(c!=null){c.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);c.hide(WindowInsets.Type.navigationBars());}}else getWindow().getDecorView().setSystemUiVisibility(getWindow().getDecorView().getSystemUiVisibility()|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);}
     private LinearLayout scrollPage(){ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);LinearLayout body=Ui.column(this);body.setPadding(dp(20),dp(18),dp(20),dp(12));scroll.addView(body,new ScrollView.LayoutParams(-1,-2));pageHost.addView(scroll,new FrameLayout.LayoutParams(-1,-1));return body;}
     private void title(LinearLayout body,String eyebrow,String title,String note){Ui.add(body,Ui.text(this,eyebrow,9,palette.muted,true),-2,12);Ui.add(body,Ui.text(this,title,27,palette.ink,true),-2,10);if(note!=null)Ui.add(body,Ui.text(this,note,12,palette.muted,false),-2,22);}
+    /** 底部导航：五个页面一屏可达，不再依赖侧滑抽屉。 */
+    private static final String[] TAB_NAMES={"任务","陪伴","互动","足迹","设置"};
+    private static final String[] TAB_ICONS={"journal","chat","heart","kite","settings"};
+    private void buildTabs(){
+        tabs=Ui.row(this);tabs.setBackgroundColor(palette.card);tabs.setPadding(dp(4),dp(6),dp(4),dp(6));tabs.setElevation(dp(6));
+        shell.addView(tabs,new LinearLayout.LayoutParams(-1,-2));
+        refreshTabs();
+    }
+    private void refreshTabs(){
+        if(tabs==null)return;tabs.removeAllViews();
+        for(int i=0;i<TAB_NAMES.length;i++){final int target=i;boolean on=page==target;
+            LinearLayout cell=Ui.column(this);cell.setGravity(Gravity.CENTER);cell.setPadding(0,dp(7),0,dp(5));
+            cell.setBackground(Ui.ripple(this,Color.TRANSPARENT,palette.blue,14));
+            ImageView ic=Ui.icon(this,TAB_ICONS[i],on?palette.blue:palette.muted);cell.addView(ic,new LinearLayout.LayoutParams(dp(21),dp(21)));
+            TextView lb=Ui.text(this,TAB_NAMES[i],10,on?palette.blue:palette.muted,on);lb.setPadding(0,dp(5),0,0);cell.addView(lb);
+            cell.setContentDescription(TAB_NAMES[i]);
+            cell.setOnClickListener(v->{if(page==target)return;page=target;renderPage();});
+            Ui.press(cell);tabs.addView(cell,new LinearLayout.LayoutParams(0,dp(50),1));
+        }
+    }
+    /** 顶栏右侧动作按钮（每页不同）。 */
+    private void barAction(String label,String icon,Runnable run){
+        if(barActions==null)return;
+        TextView b=Ui.labeled(this,label,icon,palette,run);b.setTextSize(12);b.setPadding(dp(12),dp(8),dp(12),dp(8));
+        barActions.addView(b,new LinearLayout.LayoutParams(-2,-2));
+    }
+    /** 页面索引 → 顶栏标题 + 顶栏动作 + 内容。 */
     private void renderPage(){
         if(heroPet!=null){heroPet.release();heroPet=null;}homeModes.clear();homeMeters=null;launchTitle=null;homeBubble=null;sceneStatus=null;
-        for(int i=pageHost.getChildCount()-1;i>=0;i--){View cv=pageHost.getChildAt(i);if(cv!=web)pageHost.removeViewAt(i);}
-        if(web!=null)web.setVisibility(View.GONE);
-        if(page==0){engine.pause();webPage();}
-        else if(page==1){LinearLayout body=Ui.column(this);body.setPadding(dp(20),dp(18),dp(20),0);pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));LinearLayout heading=Ui.column(this);title(heading,"LITTLE JOYS / 今天的小计划","今天，一起做什么？",null);Ui.add(body,heading,-2,0);PetPanel panel=new PetPanel(this,store,catalog,new PetPanel.Host(){public void choose(PetCatalog.Action a,String token){playAction(a,token);}public void mode(String value){engine.mode(value);}public void message(String text){toast(text);}public void confirmation(boolean visible){heading.setVisibility(visible?View.GONE:View.VISIBLE);}},false);body.addView(panel,new LinearLayout.LayoutParams(-1,0,1));}
-        else {LinearLayout body=scrollPage();if(page==2)journal(body);else settings(body);}
-        if(page!=0){hideWeb();if(resumed)engine.resume();}
+        if(tasks!=null)tasks.pause();
+        pageHost.removeAllViews();
+        if(barActions!=null)barActions.removeAllViews();
+        if(page==0){
+            engine.pause();barTitle.setText("任务");
+            barAction("刷新","up",()->{if(tasks!=null)tasks.refresh();});
+            tasksPage();
+        }else if(page==1){
+            engine.pause();barTitle.setText("陪伴");
+            barAction("清空","close",()->{WhaleChat.clear(store.prefs);chatSeen=-1;renderPage();});
+            chatPage();
+        }else if(page==2){
+            barTitle.setText("互动");
+            LinearLayout body=Ui.column(this);body.setPadding(dp(20),dp(4),dp(20),0);pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));
+            LinearLayout heading=Ui.column(this);title(heading,"LITTLE JOYS / 今天的小计划","今天，一起做什么？",null);Ui.add(body,heading,-2,0);
+            PetPanel panel=new PetPanel(this,store,catalog,new PetPanel.Host(){public void choose(PetCatalog.Action a,String token){playAction(a,token);}public void mode(String value){engine.mode(value);}public void message(String text){toast(text);}public void confirmation(boolean visible){heading.setVisibility(visible?View.GONE:View.VISIBLE);}},false);
+            body.addView(panel,new LinearLayout.LayoutParams(-1,0,1));
+        }else if(page==3){
+            barTitle.setText("足迹");LinearLayout body=scrollPage();journal(body);
+        }else{
+            barTitle.setText("设置");LinearLayout body=scrollPage();settings(body);
+        }
+        if(page>=2&&resumed)engine.resume();
+        refreshTabs();
         Ui.enter(pageHost);
-        if(resumed)engine.menu(page!=0);
+        if(resumed)engine.menu(page>=2);
     }
     private void home(LinearLayout body){
         String date=new SimpleDateFormat("M月d日 EEEE",Locale.CHINA).format(new Date());Ui.add(body,Ui.text(this,date+"  /  BY THE SEA",10,palette.muted,true),-2,18);
@@ -108,7 +155,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         LinearLayout launch=Ui.row(this);launch.setPadding(dp(18),dp(18),dp(18),dp(18));launch.setBackground(Ui.ripple(this,palette.dark?0xff294d8e:0xff3575df,Color.WHITE,24));
         LinearLayout words=Ui.column(this);launchTitle=Ui.text(this,"",16,Color.WHITE,true);launchTitle.setMaxLines(2);words.addView(launchTitle);TextView sub=Ui.text(this,"一起出发，把平凡日子过得可爱",10,0xffd2e3ff,false);sub.setPadding(0,dp(7),0,0);words.addView(sub);launch.addView(words,new LinearLayout.LayoutParams(0,-2,1));ImageView arrow=Ui.icon(this,"arrow",Color.WHITE);launch.addView(arrow,new LinearLayout.LayoutParams(dp(24),dp(24)));launch.setOnClickListener(v->{if(store.prefs.getBoolean("enabled",false))stopPet();else startPet();});Ui.press(launch);Ui.add(body,launch,-2,0);refreshHome();engine.idle();
     }
-    private void refreshHome(){String selected=PetStore.mode(store.read());for(Map.Entry<String,TextView> entry:homeModes.entrySet()){boolean on=entry.getKey().equals(selected);Ui.selected(entry.getValue(),on,palette);entry.getValue().setCompoundDrawables(Ui.symbol(this,entry.getKey().equals("walking")?"wave":"moon",on?(palette.dark?0xff102344:Color.WHITE):palette.muted,18),null,null,null);}if(homeMeters!=null){homeMeters.removeAllViews();homeMeters.addView(Ui.meters(this,store.read(),palette));}if(launchTitle!=null)launchTitle.setText(store.prefs.getBoolean("enabled",false)?store.name()+"正在陪伴你":"让"+store.name()+"来陪你");if(sceneStatus!=null)sceneStatus.setText(PetStore.mode(store.read()).equals("resting")?"慢慢休息":"自在日常");if(homeBubble!=null&&resumed&&page==0&&dialogPet==null)engine.chatTick();}
+    private void refreshHome(){String selected=PetStore.mode(store.read());for(Map.Entry<String,TextView> entry:homeModes.entrySet()){boolean on=entry.getKey().equals(selected);Ui.selected(entry.getValue(),on,palette);entry.getValue().setCompoundDrawables(Ui.symbol(this,entry.getKey().equals("walking")?"wave":"moon",on?(palette.dark?0xff102344:Color.WHITE):palette.muted,18),null,null,null);}if(homeMeters!=null){homeMeters.removeAllViews();homeMeters.addView(Ui.meters(this,store.read(),palette));}if(launchTitle!=null)launchTitle.setText(store.prefs.getBoolean("enabled",false)?store.name()+"正在陪伴你":"让"+store.name()+"来陪你");if(sceneStatus!=null)sceneStatus.setText(PetStore.mode(store.read()).equals("resting")?"慢慢休息":"自在日常");if(homeBubble!=null&&resumed&&page==2&&dialogPet==null)engine.chatTick();}
     private void playAction(PetCatalog.Action a,String token){
         String refused=store.refusal(a);if(refused!=null){toast(refused);return;}actionDialog=new Dialog(this);LinearLayout card=Ui.column(this);card.setPadding(dp(22),dp(22),dp(22),dp(18));card.setBackground(Ui.round(palette.card,palette.line,25,this));Ui.add(card,Ui.text(this,a.name,19,palette.ink,true),-2,8);dialogPet=new PetAnimationView(this);dialogPet.bodySize(dp(168));card.addView(dialogPet,new LinearLayout.LayoutParams(-1,dp(260)));Ui.add(card,Ui.text(this,store.name()+"收到你的心意啦",12,palette.muted,false),-2,16);Ui.add(card,Ui.button(this,"收起动画",palette,()->actionDialog.dismiss()),-2,0);actionDialog.setContentView(card);Window window=actionDialog.getWindow();if(window!=null){window.setBackgroundDrawableResource(android.R.color.transparent);window.setLayout(Math.min(dp(340),getResources().getDisplayMetrics().widthPixels-dp(32)),-2);}actionDialog.setOnDismissListener(d->{if(dialogPet!=null){dialogPet.release();dialogPet=null;}engine.menu(page!=0);refreshHome();});actionDialog.show();if(window!=null)window.setLayout(Math.min(dp(340),getResources().getDisplayMetrics().widthPixels-dp(32)),-2);engine.choose(a,true,token);
     }
@@ -136,7 +183,7 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         LinearLayout toolbar=Ui.row(this);TextView recordTitle=Ui.text(this,"小小回忆",12,palette.ink,true);toolbar.addView(recordTitle,new LinearLayout.LayoutParams(0,-2,1));toolbar.addView(Ui.filters(this,new String[]{"互动记录","全部记录"},journalAll?1:0,palette,index->{journalAll=index==1;renderPage();}));Ui.add(body,toolbar,44,4);
         if(!today.favoriteName.isEmpty()){LinearLayout favorite=Ui.row(this);ImageView spark=Ui.icon(this,"spark",palette.blue);favorite.addView(spark,new LinearLayout.LayoutParams(dp(14),dp(14)));TextView note=Ui.text(this,"今天偏爱  ·  "+today.favoriteName+" ×"+today.favoriteCount,10,palette.muted,false);note.setSingleLine(true);note.setEllipsize(android.text.TextUtils.TruncateAt.END);note.setPadding(dp(6),0,0,0);favorite.addView(note,new LinearLayout.LayoutParams(0,-2,1));Ui.add(body,favorite,24,4);}
         List<PetJournal.Entry> entries=PetJournal.entries(events,journalAll);
-        if(entries.isEmpty()){TextView note=Ui.text(this,"还没有互动记录。一起吃顿饭，或玩一小会儿吧。",12,palette.muted,false);note.setPadding(0,dp(16),0,dp(16));Ui.add(body,note,-2,12);Ui.add(body,Ui.button(this,"去互动",palette,()->{page=1;renderPage();}),44,0);return;}
+        if(entries.isEmpty()){TextView note=Ui.text(this,"还没有互动记录。一起吃顿饭，或玩一小会儿吧。",12,palette.muted,false);note.setPadding(0,dp(16),0,dp(16));Ui.add(body,note,-2,12);Ui.add(body,Ui.button(this,"去互动",palette,()->{page=2;renderPage();}),44,0);return;}
         String previous="";SimpleDateFormat day=new SimpleDateFormat("M月d日 EEEE",Locale.CHINA),clock=new SimpleDateFormat("HH:mm",Locale.CHINA);
         for(PetJournal.Entry entry:entries){JSONObject e=entry.event;Date at=new Date(e.optLong("at"));String group=day.format(at);if(!group.equals(previous)){TextView date=Ui.text(this,group,13,palette.ink,true);date.setPadding(0,dp(12),0,dp(8));Ui.add(body,date,-2,0);previous=group;}
             LinearLayout row=Ui.row(this);row.setPadding(0,dp(9),0,dp(9));row.setMinimumHeight(dp(52));TextView time=Ui.text(this,clock.format(at),10,palette.muted,false);row.addView(time,new LinearLayout.LayoutParams(dp(46),-2));LinearLayout words=Ui.column(this);
@@ -161,7 +208,8 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         urlIn.setText(store.prefs.getString("bridge-url",""));urlIn.setBackground(Ui.round(palette.soft,palette.line,14,this));urlIn.setPadding(dp(12),dp(10),dp(12),dp(10));
         Ui.add(card,urlIn,54,10);
         EditText tokenIn=new EditText(this);tokenIn.setSingleLine(true);tokenIn.setTextSize(13);tokenIn.setTextColor(palette.ink);tokenIn.setHintTextColor(palette.muted);
-        tokenIn.setHint("配对码（插件 cordis.patch.yml 里的 token）");tokenIn.setText(store.prefs.getString("bridge-token",""));tokenIn.setBackground(Ui.round(palette.soft,palette.line,14,this));tokenIn.setPadding(dp(12),dp(10),dp(12),dp(10));
+        tokenIn.setHint("配对码（插件 cordis.patch.yml 里的 token）");String tkSaved=store.prefs.getString("bridge-token","");if(tkSaved==null||tkSaved.isEmpty())tkSaved="whale-pair-2026";
+        tokenIn.setText(tkSaved);tokenIn.setBackground(Ui.round(palette.soft,palette.line,14,this));tokenIn.setPadding(dp(12),dp(10),dp(12),dp(10));
         Ui.add(card,tokenIn,54,8);
         LinearLayout row=Ui.row(this);
         TextView test=Ui.button(this,"测试连接",palette,()->{if(testing[0])return;String u=urlIn.getText().toString().trim(),tk=tokenIn.getText().toString().trim();
@@ -173,22 +221,20 @@ public final class MainActivity extends Activity implements PetEngine.Host {
                 else{statusLine.setText("✗ "+msg);statusLine.setTextColor(0xffcc4444);}}));
         });test.setPadding(dp(10),dp(10),dp(10),dp(10));
         row.addView(test,new LinearLayout.LayoutParams(0,-2,1));
-        TextView save=Ui.button(this,"保存",palette,()->{store.prefs.edit().putString("bridge-url",urlIn.getText().toString().trim()).putString("bridge-token",tokenIn.getText().toString().trim()).apply();toast("已保存，重启桌宠生效");});save.setPadding(dp(10),dp(10),dp(10),dp(10));
+        TextView save=Ui.button(this,"保存",palette,()->{
+            store.prefs.edit().putString("bridge-url",urlIn.getText().toString().trim()).putString("bridge-token",tokenIn.getText().toString().trim()).apply();
+            PetService svc=PetService.instance;
+            if(svc!=null){svc.reconnect();toast("已保存，正在重连…");}
+            else toast("已保存。开启桌面小宠物后生效");
+            statusLine.setText(statusText());statusLine.setTextColor(statusColor());
+            if(tasks!=null)tasks.refresh();
+        });save.setPadding(dp(10),dp(10),dp(10),dp(10));
         LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(0,-2,1);sl.setMargins(dp(8),0,0,0);row.addView(save,sl);
         Ui.add(card,row,-2,10);
         Ui.add(card,statusLine,-2,4);
         Ui.rule(card,palette);
-        Ui.add(card,Ui.text(this,"会话页地址（WebView 加载的 DSH 网页）",13,palette.ink,true),-2,14);
-        EditText webIn=new EditText(this);webIn.setSingleLine(true);webIn.setTextSize(13);webIn.setTextColor(palette.ink);webIn.setHintTextColor(palette.muted);
-        webIn.setHint("http://192.168.31.55:28000 或 https://你的域名");
-        webIn.setText(store.prefs.getString("web-url",""));webIn.setBackground(Ui.round(palette.soft,palette.line,14,this));webIn.setPadding(dp(12),dp(10),dp(12),dp(10));
-        Ui.add(card,webIn,54,8);
-        Ui.add(card,Ui.button(this,"保存会话页地址",palette,()->{String v=webIn.getText().toString().trim();if(!v.isEmpty()){if(!v.startsWith("http"))v="http://"+v;store.prefs.edit().putString("web-url",v).apply();toast("已保存，回「会话」页生效");if(web!=null){web.loadUrl(v);}}}),54,0);
-        Switch forceMobile=new Switch(this);forceMobile.setText("强制手机排版（找不回 ≡ 菜单时打开）");forceMobile.setTextSize(13);forceMobile.setTextColor(palette.ink);forceMobile.setChecked(store.prefs.getBoolean("web-force-mobile",true));
-        forceMobile.setOnCheckedChangeListener((button,value)->{store.prefs.edit().putBoolean("web-force-mobile",value).apply();if(web!=null)web.reload();});Ui.add(card,forceMobile,54,6);
-        TextView webHint=Ui.text(this,"会话页是一个干净的浏览器，原样显示 DSH 网页（不注入样式、不额外加工具栏）。",11,palette.muted,false);
-        webHint.setPadding(0,dp(6),0,0);Ui.add(card,webHint,-2,4);
-        Ui.add(card,Ui.button(this,"网页诊断（点不动时先点这里）",palette,()->webDiag()),46,6);
+        TextView taskHint=Ui.text(this,"任务页直接从插件读取电脑端的会话（列表 / 内容 / 发消息 / 中止），不再加载网页。",11,palette.muted,false);
+        taskHint.setLineSpacing(dp(4),1);taskHint.setPadding(0,dp(12),0,0);Ui.add(card,taskHint,-2,0);
         Ui.rule(card,palette);
         TextView guide=Ui.text(this,"三种连接方式：\n① 在家同 WiFi（推荐）：填 ws://电脑IP:28000/whale-pet/ws\n② 固定域名（出门也能用）：自己的 Cloudflare 隧道 → wss://域名/whale-pet/ws\n③ 临时隧道（应急）：电脑端插件管理页点「开启隧道」，填生成的 wss 地址。注意部分网络会拦截临时隧道的 WebSocket，连不上就用方式①②。",11,palette.muted,false);guide.setLineSpacing(dp(4),1);guide.setPadding(0,dp(10),0,0);
         Ui.add(card,guide,-2,0);
@@ -199,136 +245,97 @@ public final class MainActivity extends Activity implements PetEngine.Host {
         return !on?palette.muted:ready?0xff2e8b57:0xffcc4444;}
     // ---------------- 聊天页（长按语音 + 打字，与桌面气泡共用 WhaleBridge） ----------------
 
-    /**
-     * 会话页 = 一个干净的手机浏览器：原样显示 DSH 网页。
-     * 网页自己已经做了移动端适配（窄屏时自己换排版、自己出 ≡ 菜单），App 这边不注入任何样式、
-     * 不额外汇工具栏，只提供浏览器该有的东西：JS、DOM 存储、双指缩放、返回键回退。
-     */
-    private void webPage(){
-        String base=store.prefs.getString("web-url","");
-        if(base.isEmpty())base="http://192.168.31.55:28000";
-        final String root=base.split("\\?")[0];
-        // dsh_bridge_tweaks=1 是 dsh-bridge 官方的手机排版开关：宿主已有顶栏时它会「让位」，
-        // 手机端就没有 ≡ 菜单。带上这个参数＝强制按手机排版渲染（只是 URL 参数，不改样式）。
-        final String url=store.prefs.getBoolean("web-force-mobile",true)?base+(base.contains("?")?"&":"?")+"dsh_bridge_tweaks=1":base;
-        if(web==null){
-            web=new android.webkit.WebView(this);
-            android.webkit.WebSettings ws=web.getSettings();
-            ws.setJavaScriptEnabled(true);
-            ws.setDomStorageEnabled(true);
-            ws.setDatabaseEnabled(true);
-            ws.setJavaScriptCanOpenWindowsAutomatically(true);
-            ws.setUseWideViewPort(true);
-            ws.setLoadWithOverviewMode(false);
-            ws.setSupportZoom(true);
-            ws.setBuiltInZoomControls(true);
-            ws.setDisplayZoomControls(false);
-            ws.setMediaPlaybackRequiresUserGesture(false);
-            ws.setCacheMode(android.webkit.WebSettings.LOAD_DEFAULT);
-            web.setOverScrollMode(View.OVER_SCROLL_NEVER);
-            web.setWebViewClient(new android.webkit.WebViewClient(){
-                @Override public boolean shouldOverrideUrlLoading(android.webkit.WebView v,android.webkit.WebResourceRequest r){return false;}
-                @Override public void onPageFinished(android.webkit.WebView v,String u){v.evaluateJavascript(TAP_PROBE_JS,null);}
-            });
-            web.setWebChromeClient(new android.webkit.WebChromeClient());
-        }
-        if(pageHost.indexOfChild(web)<0)pageHost.addView(web,new FrameLayout.LayoutParams(-1,-1));
-        String cur=web.getUrl();
-        if(cur==null||!cur.startsWith(root)) web.loadUrl(url);
-        web.setVisibility(View.VISIBLE);
-    }
-    /** 在设置页弹窗显示网页真实状态：视口宽度、≡ 按钮的屏幕位置、那个位置最上层是什么元素、最近的触摸记录。 */
-    private void webDiag(){
-        if(web==null){toast("会话页还没打开过，先去「会话」页看一眼再回来");return;}
-        web.evaluateJavascript("(window.__whaleProbe?window.__whaleProbe():'{\"err\":\"probe missing\"}')",new android.webkit.ValueCallback<String>(){
-            @Override public void onReceiveValue(String v){
-                String raw=v==null?"(null)":v;String pretty=raw;
-                try{pretty=new org.json.JSONObject(raw).toString(2);}catch(Exception ignored){}
-                final String show=pretty;
-                new AlertDialog.Builder(MainActivity.this).setTitle("网页诊断").setMessage(show)
-                    .setPositiveButton("好",null).setNeutralButton("复制",(d,w)->{
-                        ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("diag",show));
-                        toast("已复制");}).show();
-            }
-        });
-    }
-    private void hideWeb(){if(web!=null)web.setVisibility(View.GONE);}
-/** 纯观察用的点击探针：记录手指落在哪个元素上，便于在设置页「网页诊断」里看清为什么点不动。不修改任何样式或布局。 */
-    private static final String TAP_PROBE_JS="(function(){if(window.__whaleTapLog)return;window.__whaleTapLog=[];"
-        +"function rec(e){try{var t=(e.touches&&e.touches[0])||e.changedTouches&&e.changedTouches[0];"
-        +"var x=t?t.clientX:e.clientX,y=t?t.clientY:e.clientY;if(x===undefined||x<0)return;"
-        +"var el=e.target||{},q=document.elementFromPoint(x,y);"
-        +"window.__whaleTapLog.push({ty:e.type,x:Math.round(x),y:Math.round(y),"
-        +"el:String(el.className||el.tagName||''),top:q?String(q.className||q.tagName||''):'null'});"
-        +"if(window.__whaleTapLog.length>20)window.__whaleTapLog.shift();}catch(err){}}"
-        +"['touchstart','touchend','click'].forEach(function(t){document.addEventListener(t,rec,true);});"
-        +"window.__whaleProbe=function(){var o={iw:innerWidth,cw:document.documentElement.clientWidth,dpr:devicePixelRatio,"
-        +"vv:window.visualViewport?(Math.round(visualViewport.width)+'x'+Math.round(visualViewport.height)+'@'+visualViewport.scale):'na',"
-        +"menuBtn:!!document.querySelector('.dsh-header-menu-btn'),header:!!document.querySelector('.dsh-mobile-app-header'),"
-        +"body:document.body.className,taps:window.__whaleTapLog.slice(-10)};"
-        +"var b=document.querySelector('.dsh-header-menu-btn');"
-        +"if(b){var r=b.getBoundingClientRect();o.menuRect=[Math.round(r.left),Math.round(r.top),Math.round(r.width),Math.round(r.height)];"
-        +"var q=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);"
-        +"o.menuTop=q?String(q.className||q.tagName||''):'null';o.menuTopIsBtn=!!q&&(q===b||b.contains(q));}"
-        +"return JSON.stringify(o);};})();";
-
     @Override public boolean onKeyDown(int keyCode,android.view.KeyEvent event){
-        if(keyCode==android.view.KeyEvent.KEYCODE_BACK&&web!=null&&page==0&&web.canGoBack()){web.goBack();return true;}
+        if(keyCode==android.view.KeyEvent.KEYCODE_BACK&&page==0&&tasks!=null&&tasks.back())return true;
         return super.onKeyDown(keyCode,event);
     }
 
-    /** DeepSeek 风格聊天页（保留备用）：空会话=居中欢迎+大输入卡；有消息=列表+常驻底栏输入卡。 */
+    /** 任务页：原生会话列表 + 详情（取代原 WebView 会话页）。 */
+    private void tasksPage(){
+        if(tasks==null)tasks=new TasksPage(this,store,palette,new TasksPage.Host(){public void toast(String text){MainActivity.this.toast(text);}public void openSettings(){page=4;renderPage();}});
+        pageHost.addView(tasks.view(),new FrameLayout.LayoutParams(-1,-1));
+        tasks.resume();
+    }
+
+    /** 陪伴页：和鲸宝对话（打字 + 长按说话），流式显示。 */
+    private View chatStatus(){
+        LinearLayout status=Ui.row(this);status.setGravity(Gravity.CENTER_VERTICAL);status.setPadding(dp(20),0,dp(12),dp(4));
+        PetService svc=PetService.instance;boolean ready=svc!=null&&svc.bridgeReady();
+        boolean on=store.prefs.getBoolean("enabled",false);
+        TextView dot=Ui.text(this,"●",11,ready?0xff2e8b57:(on?0xffcc4444:palette.muted),false);
+        status.addView(dot,new LinearLayout.LayoutParams(-2,-2));
+        TextView st=Ui.text(this,ready?"鲸宝在线 · 长按麦克风说话":(on?"鲸宝未连接 · 检查设置":"鲸宝还没到桌面"),11,palette.muted,false);
+        st.setPadding(dp(6),0,dp(8),0);status.addView(st,new LinearLayout.LayoutParams(0,-2,1));
+        if(!ready)status.addView(Ui.labeled(this,"去设置","settings",palette,()->{page=4;renderPage();}),new LinearLayout.LayoutParams(-2,dp(34)));
+        return status;
+    }
     private void chatPage(){
         LinearLayout body=Ui.column(this);
+        body.addView(chatStatus(),new LinearLayout.LayoutParams(-1,-2));
         org.json.JSONArray log=WhaleChat.read(store.prefs);
-        boolean empty=log.length()==0;
+        String live=PetService.streamingText;
+        boolean empty=log.length()==0&&(live==null||live.isEmpty());
         if(empty){
-            // 空态：垂直居中
-            FrameLayout center=new FrameLayout(this);
             LinearLayout middle=Ui.column(this);middle.setGravity(Gravity.CENTER);
             LinearLayout brand=Ui.row(this);brand.setGravity(Gravity.CENTER);
-            ImageView whale=Ui.icon(this,"spark",palette.ink);whale.getLayoutParams().width=dp(34);whale.getLayoutParams().height=dp(34);
-            TextView slogan=Ui.text(this,"探索未至之境",26,palette.ink,true);slogan.setPadding(dp(10),0,0,0);
-            brand.addView(whale,new LinearLayout.LayoutParams(dp(34),dp(34)));brand.addView(slogan,new LinearLayout.LayoutParams(-2,-2));
+            brand.addView(Ui.icon(this,"spark",palette.ink),new LinearLayout.LayoutParams(dp(28),dp(28)));
+            TextView slogan=Ui.text(this,"和"+store.name()+"说说话",23,palette.ink,true);slogan.setPadding(dp(10),0,0,0);
+            brand.addView(slogan,new LinearLayout.LayoutParams(-2,-2));
             Ui.add(middle,brand,-2,0);
-            TextView sub=Ui.text(this,"你好，我是"+store.name()+" —— 有什么想聊的？",13,palette.muted,false);sub.setPadding(0,dp(12),0,0);
-            Ui.add(middle,sub,-2,0);
-            FrameLayout.LayoutParams mp=new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER);mp.setMargins(dp(24),0,dp(24),dp(120));
-            center.addView(middle,mp);
-            // 大输入卡固定底部
-            center.addView(chatInputCard(false),new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-            pageHost.addView(center,new FrameLayout.LayoutParams(-1,-1));
+            Ui.add(middle,Ui.text(this,"长按下面的麦克风说话，或者直接打字。",12,palette.muted,false),-2,12);
+            body.addView(middle,new LinearLayout.LayoutParams(-1,0,1));
+            body.addView(chatInputHolder(new LinearLayout.LayoutParams(-1,-2)),new LinearLayout.LayoutParams(-1,-2));
+            pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));
             chatList=null;chatScroll=null;
             return;
         }
-        // 会话态
         chatScroll=new ScrollView(this);chatScroll.setFillViewport(false);chatScroll.setClipToPadding(false);
-        chatList=Ui.column(this);chatList.setPadding(dp(16),dp(10),dp(16),dp(12));chatScroll.addView(chatList,new ScrollView.LayoutParams(-1,-2));
+        chatList=Ui.column(this);chatList.setPadding(dp(16),dp(4),dp(16),dp(12));chatScroll.addView(chatList,new ScrollView.LayoutParams(-1,-2));
         body.addView(chatScroll,new LinearLayout.LayoutParams(-1,0,1));
-        body.addView(chatInputCard(true),new LinearLayout.LayoutParams(-1,-2));
+        body.addView(chatInputHolder(new LinearLayout.LayoutParams(-1,-2)),new LinearLayout.LayoutParams(-1,-2));
         pageHost.addView(body,new FrameLayout.LayoutParams(-1,-1));
+        chatSeen=PetService.chatVersion;streamSeen=PetService.streamVersion;
         renderChat();
     }
-    /** 底部输入卡：圆角大输入框 + 发送圆钮 + 模型名。expanded=true 时铺满宽度（会话态）。 */
-    private View chatInputCard(boolean expanded){
+    private View chatInputHolder(LinearLayout.LayoutParams lp){
+        LinearLayout holder=Ui.column(this);holder.setPadding(dp(12),dp(4),dp(12),dp(10));
+        holder.addView(chatInputCard(),new LinearLayout.LayoutParams(-1,-2));
+        return holder;
+    }
+    /** 底部输入卡：输入框 + 长按说话 + 发送；键盘回车也能直接发。 */
+    private View chatInputCard(){
         LinearLayout card=Ui.column(this);
-        card.setBackground(Ui.round(palette.soft,palette.line,22,this));card.setPadding(dp(14),dp(12),dp(12),dp(10));
-        FrameLayout.LayoutParams lp=expanded?new FrameLayout.LayoutParams(-1,-2):new FrameLayout.LayoutParams(-1,-2);
-        if(!expanded){lp.setMargins(dp(16),0,dp(16),dp(18));card.setLayoutParams(lp);}
-        else{LinearLayout.LayoutParams cl=new LinearLayout.LayoutParams(-1,-2);cl.setMargins(dp(12),dp(6),dp(12),dp(10));card.setLayoutParams(cl);}
-        EditText input=new EditText(this);input.setHint("给"+store.name()+"发消息");input.setMaxLines(4);input.setTextSize(15);input.setTextColor(palette.ink);input.setHintTextColor(palette.muted);input.setBackground(null);input.setPadding(dp(4),dp(2),dp(4),dp(6));
+        card.setBackground(Ui.round(palette.soft,palette.line,20,this));card.setPadding(dp(14),dp(8),dp(10),dp(8));
+        EditText input=new EditText(this);input.setHint("给"+store.name()+"发消息…");input.setMaxLines(4);input.setTextSize(15);input.setTextColor(palette.ink);input.setHintTextColor(palette.muted);input.setBackground(null);input.setPadding(dp(4),dp(4),dp(4),dp(6));
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEND);
         card.addView(input,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout row=Ui.row(this);row.setGravity(Gravity.CENTER_VERTICAL);
-        TextView model=Ui.text(this,"鲸宝 · DSH",12,palette.muted,false);model.setPadding(dp(4),0,0,0);
-        row.addView(model,new LinearLayout.LayoutParams(0,-2,1));
+        TextView hint=Ui.text(this,"按住麦克风说话",11,palette.muted,false);hint.setPadding(dp(4),0,0,0);
+        row.addView(hint,new LinearLayout.LayoutParams(0,-2,1));
+        ImageView mic=Ui.icon(this,"wave",palette.blue);mic.setPadding(dp(9),dp(9),dp(9),dp(9));
+        mic.setBackground(Ui.round(palette.card,0,20,this));mic.setContentDescription("按住说话");
+        mic.setOnTouchListener((v,ev)->{
+            if(ev.getActionMasked()==MotionEvent.ACTION_DOWN){
+                PetService s=PetService.instance;
+                if(s==null){toast("桌宠服务没起来，先去设置里开启");}
+                else{s.beginVoice();toast("在听…松开发送");}
+            }else if(ev.getActionMasked()==MotionEvent.ACTION_UP||ev.getActionMasked()==MotionEvent.ACTION_CANCEL){
+                PetService s=PetService.instance;if(s!=null)s.endVoice();
+            }
+            return true;
+        });
+        row.addView(mic,new LinearLayout.LayoutParams(dp(38),dp(38)));
         TextView send=Ui.text(this,"↑",16,Color.WHITE,true);send.setGravity(Gravity.CENTER);
-        send.setBackground(Ui.round(palette.blue,0,22,this));send.setContentDescription("发送");
-        send.setOnClickListener(v->{
+        send.setBackground(Ui.round(palette.blue,0,20,this));send.setContentDescription("发送");
+        LinearLayout.LayoutParams sl=new LinearLayout.LayoutParams(dp(38),dp(38));sl.setMargins(dp(8),0,0,0);
+        final Runnable doSend=()->{
             String t=input.getText().toString().trim();if(t.isEmpty())return;input.setText("");
             PetService svc=PetService.instance;
-            if(svc!=null){svc.sendFromApp(t);}else toast("鲸宝还没起床，先去设置里连接");
-        });
-        row.addView(send,new LinearLayout.LayoutParams(dp(38),dp(38)));
+            if(svc!=null)svc.sendFromApp(t);else toast("鲸宝还没起床，先去设置里连接");
+        };
+        send.setOnClickListener(v->doSend.run());
+        input.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEND){doSend.run();return true;}return false;});
+        row.addView(send,sl);
         card.addView(row,new LinearLayout.LayoutParams(-1,-2));
         return card;
     }
@@ -357,6 +364,16 @@ public final class MainActivity extends Activity implements PetEngine.Host {
             String time=new SimpleDateFormat("M月d日 HH:mm",Locale.CHINA).format(new Date(at));
             TextView meta=Ui.text(this,(mine?"我":"鲸宝")+" · "+time,9,palette.muted,false);meta.setGravity(mine?Gravity.RIGHT:Gravity.LEFT);meta.setPadding(0,dp(3),0,0);
             wrap.addView(meta,new LinearLayout.LayoutParams(-1,-2));
+            Ui.add(chatList,wrap,-2,10);
+        }
+        String live=PetService.streamingText;
+        if(live!=null&&!live.isEmpty()){
+            LinearLayout wrap=Ui.column(this);
+            TextView card=Ui.text(this,live+" ▍",13,palette.ink,false);
+            card.setTextIsSelectable(true);card.setBackground(Ui.round(palette.soft,0,16,this));
+            card.setPadding(dp(12),dp(9),dp(12),dp(9));card.setMaxWidth(dp(240));
+            wrap.addView(card,new LinearLayout.LayoutParams(-2,-2));
+            wrap.addView(Ui.text(this,store.name()+" 正在说…",9,palette.blue,false),new LinearLayout.LayoutParams(-1,-2));
             Ui.add(chatList,wrap,-2,10);
         }
         chatList.post(()->{ScrollView parent=(ScrollView)chatList.getParent();if(parent!=null)parent.fullScroll(View.FOCUS_DOWN);});
@@ -392,9 +409,15 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     private void startPet(){if(!Settings.canDrawOverlays(this)){pendingStart=true;startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName())));return;}if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},9);if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},10);store.prefs.edit().putBoolean("enabled",true).apply();try{startForegroundService(new Intent(this,PetService.class));}catch(Exception e){store.prefs.edit().putBoolean("enabled",false).apply();toast("暂时无法开启桌宠，请重试");}refreshHome();}
     private void stopPet(){store.prefs.edit().putBoolean("enabled",false).apply();stopService(new Intent(this,PetService.class));refreshHome();}
     private void toast(String text){android.widget.Toast.makeText(this,text,Toast.LENGTH_SHORT).show();}
-    @Override protected void onResume(){super.onResume();resumed=visible=true;if(PetService.instance!=null)PetService.instance.updateVisibility();engine.resume();engine.menu(page!=0);appearance();handler.post(refresh);handler.post(chatTick);if(pendingStart){pendingStart=false;if(Settings.canDrawOverlays(this))startPet();}else if(store.prefs.getBoolean("enabled",false)&&PetService.instance==null)startPet();}
-    private final Runnable chatTick=new Runnable(){@Override public void run(){if(!resumed)return;if(false){int ticket=++chatTicket;int latest=PetService.chatVersion;boolean dirty=latest!=ticket-1;if(latest!=chatTicketSeen){chatTicketSeen=latest;renderChat();}}handler.postDelayed(this,600);}};
-    private int chatTicketSeen;
+    @Override protected void onResume(){super.onResume();resumed=visible=true;if(PetService.instance!=null)PetService.instance.updateVisibility();engine.resume();engine.menu(page>=2);appearance();handler.post(refresh);handler.post(chatTick);if(pendingStart){pendingStart=false;if(Settings.canDrawOverlays(this))startPet();}else if(store.prefs.getBoolean("enabled",false)&&PetService.instance==null)startPet();}
+    private final Runnable chatTick=new Runnable(){@Override public void run(){
+        if(!resumed)return;
+        if(page==1){
+            int chat=PetService.chatVersion,stream=PetService.streamVersion;
+            if(chat!=chatSeen||stream!=streamSeen){chatSeen=chat;streamSeen=stream;renderChat();}
+        }
+        handler.postDelayed(this,700);
+    }};
     @Override protected void onPause(){resumed=visible=false;engine.pause();handler.removeCallbacks(refresh);handler.removeCallbacks(chatTick);if(actionDialog!=null&&actionDialog.isShowing())actionDialog.dismiss();super.onPause();if(PetService.instance!=null)PetService.instance.updateVisibility();}
     @Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);engine.dispose();if(heroPet!=null)heroPet.release();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){out.putInt("page",page);super.onSaveInstanceState(out);}
@@ -402,9 +425,9 @@ public final class MainActivity extends Activity implements PetEngine.Host {
     @Override public void onBackPressed(){if(page!=0){page=0;renderPage();}else moveTaskToBack(true);}
     @Override public void show(String id,Runnable loaded){PetAnimationView target=dialogPet!=null?dialogPet:heroPet;if(target!=null){target.mirror(false);target.show(catalog.clips.get(id),loaded);}else loaded.run();}
     @Override public void active(boolean value){if(heroPet!=null)heroPet.screenActive(value);if(dialogPet!=null)dialogPet.screenActive(value);}
-    @Override public void message(String text){engine.noteSpeech(text);if(homeBubble!=null&&page==0&&dialogPet==null){int ticket=++bubbleTicket;homeBubble.text(text);homeBubble.setVisibility(View.VISIBLE);handler.postDelayed(()->{if(ticket==bubbleTicket&&homeBubble!=null)homeBubble.setVisibility(View.GONE);},7000);}else toast(text);}
+    @Override public void message(String text){engine.noteSpeech(text);if(homeBubble!=null&&page==2&&dialogPet==null){int ticket=++bubbleTicket;homeBubble.text(text);homeBubble.setVisibility(View.VISIBLE);handler.postDelayed(()->{if(ticket==bubbleTicket&&homeBubble!=null)homeBubble.setVisibility(View.GONE);},7000);}else toast(text);}
     @Override public void changed(){refreshHome();}
-    @Override public boolean move(boolean right,int duration){if(heroPet==null||page!=0||dialogPet!=null)return false;float center=heroPet.getWidth()/2f,limit=Math.max(0,center-dp(78));heroPet.faceToward(right);android.animation.ValueAnimator animation=android.animation.ValueAnimator.ofFloat(center,right?center+limit:center-limit);homeMotion=animation;animation.setDuration(duration);animation.setInterpolator(new android.view.animation.LinearInterpolator());animation.addUpdateListener(v->{if(heroPet!=null)heroPet.anchor((float)v.getAnimatedValue(),heroPet.getHeight()*.88f);});animation.start();return true;}
+    @Override public boolean move(boolean right,int duration){if(heroPet==null||page!=2||dialogPet!=null)return false;float center=heroPet.getWidth()/2f,limit=Math.max(0,center-dp(78));heroPet.faceToward(right);android.animation.ValueAnimator animation=android.animation.ValueAnimator.ofFloat(center,right?center+limit:center-limit);homeMotion=animation;animation.setDuration(duration);animation.setInterpolator(new android.view.animation.LinearInterpolator());animation.addUpdateListener(v->{if(heroPet!=null)heroPet.anchor((float)v.getAnimatedValue(),heroPet.getHeight()*.88f);});animation.start();return true;}
     private android.animation.ValueAnimator homeMotion;
     @Override public void stopMotion(){if(homeMotion!=null){homeMotion.cancel();homeMotion=null;}if(heroPet!=null){heroPet.anchor(Float.NaN,Float.NaN);heroPet.mirror(false);}}
     private static final class Ocean extends FrameLayout{
